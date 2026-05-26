@@ -3,12 +3,19 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { TopNav } from '@/components/top-nav';
+import { GradeBadge } from '@/components/severity-badge';
+import { computeCommunityGrade, GRADE_NUMERIC } from '@/lib/database.types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, Area, AreaChart, Legend,
+  PieChart, Pie, Cell, Area, AreaChart, Legend,
 } from 'recharts';
-import { Cpu, MessageSquare, AlertTriangle, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
+import {
+  Cpu, MessageSquare, AlertTriangle, CheckCircle2, Clock, TrendingUp,
+  Star, Users, ShieldCheck, AlertCircle,
+} from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import Link from 'next/link';
+import { useAuth } from '@/lib/auth-context';
 
 interface Stats {
   totalModels: number;
@@ -17,90 +24,81 @@ interface Stats {
   closedIssues: number;
   avgFixHours: number;
   criticalIssues: number;
+  totalRatings: number;
+  modelsNeedingApproval: number;
 }
 
-interface SeverityDist {
-  name: string;
-  value: number;
-  color: string;
-}
+interface MonthlyTrend { month: string; open: number; resolved: number; }
+interface TopModel { id: string; model_name: string; manufacturer: string; count: number; }
+interface ActiveUser { full_name: string; email: string; count: number; }
+interface GradedModel { id: string; model_name: string; manufacturer: string; grade: string; rater_count: number; }
+interface GradeDist { grade: string; quality: number; popularity: number; }
+interface ConflictingModel { id: string; model_name: string; spread: number; rater_count: number; }
+interface TopRater { full_name: string; email: string; count: number; }
 
-interface MonthlyTrend {
-  month: string;
-  open: number;
-  resolved: number;
-}
-
-interface TopModel {
-  model_name: string;
-  manufacturer: string;
-  count: number;
-}
-
-interface ActiveUser {
-  full_name: string;
-  email: string;
-  count: number;
-}
-
-const SEVERITY_COLORS = {
-  critical: '#ef4444',
-  high: '#f97316',
-  medium: '#eab308',
-  low: '#22c55e',
-};
+const SEVERITY_COLORS = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
+const GRADE_ORDER = ['A+', 'A', 'B', 'C', 'D', 'N/A'];
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats>({
-    totalModels: 0, totalFeedback: 0, openIssues: 0,
-    closedIssues: 0, avgFixHours: 0, criticalIssues: 0,
-  });
-  const [severityDist, setSeverityDist] = useState<SeverityDist[]>([]);
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
+
+  const [stats, setStats] = useState<Stats>({ totalModels: 0, totalFeedback: 0, openIssues: 0, closedIssues: 0, avgFixHours: 0, criticalIssues: 0, totalRatings: 0, modelsNeedingApproval: 0 });
+  const [severityDist, setSeverityDist] = useState<Array<{ name: string; value: number; color: string }>>([]);
   const [monthlyTrend, setMonthlyTrend] = useState<MonthlyTrend[]>([]);
   const [topModels, setTopModels] = useState<TopModel[]>([]);
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
+  const [topQualityModels, setTopQualityModels] = useState<GradedModel[]>([]);
+  const [lowestQualityModels, setLowestQualityModels] = useState<GradedModel[]>([]);
+  const [mostReviewed, setMostReviewed] = useState<GradedModel[]>([]);
+  const [conflicting, setConflicting] = useState<ConflictingModel[]>([]);
+  const [gradeDist, setGradeDist] = useState<GradeDist[]>([]);
+  const [topRaters, setTopRaters] = useState<TopRater[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  useEffect(() => { loadDashboardData(); }, []);
 
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [modelsRes, feedbackRes, profilesRes] = await Promise.all([
-        supabase.from('relay_models').select('id, model_name, manufacturer', { count: 'exact' }),
+      const [modelsRes, feedbackRes, profilesRes, ratingsRes] = await Promise.all([
+        supabase.from('relay_models').select('id, model_name, manufacturer, official_quality_grade, official_popularity_grade', { count: 'exact' }),
         supabase.from('feedback_entries').select('*'),
         supabase.from('profiles').select('id, full_name, email'),
+        supabase.from('relay_model_ratings').select('relay_model_id, user_id, quality_grade, popularity_grade, is_flagged, created_at').eq('is_flagged', false),
       ]);
 
-      const models: Array<{ id: string; model_name: string; manufacturer: string }> = modelsRes.data || [];
+      const models: Array<{ id: string; model_name: string; manufacturer: string; official_quality_grade: string; official_popularity_grade: string }> = modelsRes.data || [];
       const feedback: Array<{ id: string; relay_model_id: string; user_id: string; status: string; severity: string; estimated_fix_hours: number; created_at: string }> = feedbackRes.data || [];
       const profiles: Array<{ id: string; full_name: string; email: string }> = profilesRes.data || [];
+      const ratings: Array<{ relay_model_id: string; user_id: string; quality_grade: string | null; popularity_grade: string | null; is_flagged: boolean; created_at: string }> = ratingsRes.data || [];
 
-      const profileMap = new Map(profiles.map((p: { id: string; full_name: string; email: string }) => [p.id, p]));
+      const profileMap = new Map(profiles.map(p => [p.id, p]));
 
+      // Feedback stats
       const openIssues = feedback.filter(f => ['open', 'in_progress'].includes(f.status)).length;
       const closedIssues = feedback.filter(f => ['resolved', 'closed'].includes(f.status)).length;
       const criticalIssues = feedback.filter(f => f.severity === 'critical').length;
-      const avgFixHours = feedback.length
-        ? feedback.reduce((sum, f) => sum + (f.estimated_fix_hours || 0), 0) / feedback.length
-        : 0;
+      const avgFixHours = feedback.length ? feedback.reduce((s, f) => s + (f.estimated_fix_hours || 0), 0) / feedback.length : 0;
 
-      setStats({
-        totalModels: modelsRes.count || 0,
-        totalFeedback: feedback.length,
-        openIssues,
-        closedIssues,
-        avgFixHours: Math.round(avgFixHours * 10) / 10,
-        criticalIssues,
+      // Ratings by model
+      const ratingsByModel = new Map<string, typeof ratings>();
+      ratings.forEach(r => {
+        const arr = ratingsByModel.get(r.relay_model_id) || [];
+        arr.push(r);
+        ratingsByModel.set(r.relay_model_id, arr);
       });
+
+      const modelsNeedingApproval = models.filter(m => {
+        const mr = ratingsByModel.get(m.id) || [];
+        return mr.length > 0 && (m.official_quality_grade === 'N/A' || m.official_popularity_grade === 'N/A');
+      }).length;
+
+      setStats({ totalModels: modelsRes.count || 0, totalFeedback: feedback.length, openIssues, closedIssues, avgFixHours: Math.round(avgFixHours * 10) / 10, criticalIssues, totalRatings: ratings.length, modelsNeedingApproval });
 
       // Severity distribution
       const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-      feedback.forEach(f => {
-        if (f.severity in sevCounts) sevCounts[f.severity as keyof typeof sevCounts]++;
-      });
+      feedback.forEach(f => { if (f.severity in sevCounts) sevCounts[f.severity as keyof typeof sevCounts]++; });
       setSeverityDist([
         { name: 'Critical', value: sevCounts.critical, color: SEVERITY_COLORS.critical },
         { name: 'High', value: sevCounts.high, color: SEVERITY_COLORS.high },
@@ -108,135 +106,145 @@ export default function DashboardPage() {
         { name: 'Low', value: sevCounts.low, color: SEVERITY_COLORS.low },
       ]);
 
-      // Monthly trend (last 6 months)
+      // Monthly trend
       const months: MonthlyTrend[] = [];
       for (let i = 5; i >= 0; i--) {
         const date = subMonths(new Date(), i);
         const start = startOfMonth(date);
         const end = endOfMonth(date);
-        const monthFeedback = feedback.filter(f => {
-          const d = new Date(f.created_at);
-          return d >= start && d <= end;
-        });
-        months.push({
-          month: format(date, 'MMM'),
-          open: monthFeedback.filter(f => ['open', 'in_progress'].includes(f.status)).length,
-          resolved: monthFeedback.filter(f => ['resolved', 'closed'].includes(f.status)).length,
-        });
+        const mf = feedback.filter(f => { const d = new Date(f.created_at); return d >= start && d <= end; });
+        months.push({ month: format(date, 'MMM'), open: mf.filter(f => ['open', 'in_progress'].includes(f.status)).length, resolved: mf.filter(f => ['resolved', 'closed'].includes(f.status)).length });
       }
       setMonthlyTrend(months);
 
       // Top problematic models
-      const modelCounts = new Map<string, { model_name: string; manufacturer: string; count: number }>();
+      const modelFbCounts = new Map<string, { id: string; model_name: string; manufacturer: string; count: number }>();
       feedback.forEach(f => {
-        const model = models.find(m => m.id === f.relay_model_id);
-        if (model) {
-          const key = model.id;
-          const existing = modelCounts.get(key);
-          if (existing) {
-            existing.count++;
-          } else {
-            modelCounts.set(key, { model_name: model.model_name, manufacturer: model.manufacturer, count: 1 });
-          }
-        }
+        const m = models.find(mo => mo.id === f.relay_model_id);
+        if (m) { const e = modelFbCounts.get(m.id); if (e) e.count++; else modelFbCounts.set(m.id, { id: m.id, model_name: m.model_name, manufacturer: m.manufacturer, count: 1 }); }
       });
-      const sortedModels = Array.from(modelCounts.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-      setTopModels(sortedModels);
+      setTopModels(Array.from(modelFbCounts.values()).sort((a, b) => b.count - a.count).slice(0, 5));
 
-      // Most active users
-      const userCounts = new Map<string, number>();
-      feedback.forEach(f => {
-        userCounts.set(f.user_id, (userCounts.get(f.user_id) || 0) + 1);
+      // Active users
+      const userFbCounts = new Map<string, number>();
+      feedback.forEach(f => userFbCounts.set(f.user_id, (userFbCounts.get(f.user_id) || 0) + 1));
+      setActiveUsers(Array.from(userFbCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([uid, count]) => { const p = profileMap.get(uid); return { full_name: p?.full_name || 'Unknown', email: p?.email || '', count }; }));
+
+      // Community grade computations per model
+      const qualityOrder: Record<string, number> = { 'A+': 0, 'A': 1, 'B': 2, 'C': 3, 'D': 4, 'N/A': 5 };
+      const modelGrades = models.map(m => {
+        const mr = ratingsByModel.get(m.id) || [];
+        const { grade: cq, count } = computeCommunityGrade(mr, 'quality_grade');
+        const { grade: cp } = computeCommunityGrade(mr, 'popularity_grade');
+        const displayQ = m.official_quality_grade && m.official_quality_grade !== 'N/A' ? m.official_quality_grade : cq;
+        return { id: m.id, model_name: m.model_name, manufacturer: m.manufacturer, community_quality: cq, community_popularity: cp, display_quality: displayQ, rater_count: count, ratings: mr };
       });
-      const sortedUsers = Array.from(userCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([uid, count]) => {
-          const p = profileMap.get(uid);
-          return { full_name: p?.full_name || 'Unknown', email: p?.email || '', count };
+
+      // Highest quality (by display grade, then rater count)
+      const graded = modelGrades.filter(m => m.display_quality !== 'N/A');
+      setTopQualityModels(graded.sort((a, b) => (qualityOrder[a.display_quality] ?? 5) - (qualityOrder[b.display_quality] ?? 5)).slice(0, 5).map(m => ({ id: m.id, model_name: m.model_name, manufacturer: m.manufacturer, grade: m.display_quality, rater_count: m.rater_count })));
+
+      // Lowest quality
+      const lowQuality = modelGrades.filter(m => m.display_quality !== 'N/A' && m.rater_count >= 1);
+      setLowestQualityModels(lowQuality.sort((a, b) => (qualityOrder[b.display_quality] ?? 5) - (qualityOrder[a.display_quality] ?? 5)).slice(0, 5).map(m => ({ id: m.id, model_name: m.model_name, manufacturer: m.manufacturer, grade: m.display_quality, rater_count: m.rater_count })));
+
+      // Most reviewed
+      setMostReviewed(modelGrades.filter(m => m.rater_count > 0).sort((a, b) => b.rater_count - a.rater_count).slice(0, 5).map(m => ({ id: m.id, model_name: m.model_name, manufacturer: m.manufacturer, grade: m.display_quality, rater_count: m.rater_count })));
+
+      // Conflicting ratings: models where quality grade has high spread
+      const conflictingModels: ConflictingModel[] = [];
+      modelGrades.forEach(m => {
+        if (m.ratings.length < 2) return;
+        const scores = m.ratings.map(r => GRADE_NUMERIC[r.quality_grade || 'N/A'] || 0).filter(s => s > 0);
+        if (scores.length < 2) return;
+        const min = Math.min(...scores);
+        const max = Math.max(...scores);
+        const spread = max - min;
+        if (spread >= 2) conflictingModels.push({ id: m.id, model_name: m.model_name, spread, rater_count: scores.length });
+      });
+      setConflicting(conflictingModels.sort((a, b) => b.spread - a.spread).slice(0, 5));
+
+      // Grade distribution
+      const gradeDistMap = new Map<string, { quality: number; popularity: number }>();
+      GRADE_ORDER.forEach(g => gradeDistMap.set(g, { quality: 0, popularity: 0 }));
+      modelGrades.forEach(m => {
+        const mr = ratingsByModel.get(m.id) || [];
+        mr.forEach(r => {
+          if (r.quality_grade) { const e = gradeDistMap.get(r.quality_grade); if (e) e.quality++; }
+          if (r.popularity_grade) { const e = gradeDistMap.get(r.popularity_grade); if (e) e.popularity++; }
         });
-      setActiveUsers(sortedUsers);
+      });
+      setGradeDist(GRADE_ORDER.map(g => ({ grade: g, ...gradeDistMap.get(g)! })));
+
+      // Top raters (users with most ratings)
+      const userRateCounts = new Map<string, number>();
+      ratings.forEach(r => userRateCounts.set(r.user_id, (userRateCounts.get(r.user_id) || 0) + 1));
+      setTopRaters(Array.from(userRateCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([uid, count]) => { const p = profileMap.get(uid); return { full_name: p?.full_name || 'Unknown', email: p?.email || '', count }; }));
+
     } finally {
       setLoading(false);
     }
   };
 
-  const StatCard = ({
-    title, value, icon: Icon, color, subtitle
-  }: {
-    title: string; value: string | number; icon: React.ElementType;
-    color: string; subtitle?: string;
-  }) => (
-    <div className="bg-card border border-border rounded-xl p-5 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground font-medium">{title}</p>
-          <p className="text-2xl font-bold mt-1 text-foreground">
-            {loading ? <span className="inline-block w-16 h-7 bg-muted rounded animate-pulse" /> : value}
-          </p>
-          {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-        </div>
-        <div className={`p-2.5 rounded-xl ${color}`}>
-          <Icon className="w-5 h-5" />
+  const StatCard = ({ title, value, icon: Icon, color, subtitle, href }: { title: string; value: string | number; icon: React.ElementType; color: string; subtitle?: string; href?: string }) => {
+    const content = (
+      <div className={`bg-card border border-border rounded-xl p-5 hover:shadow-md transition-shadow ${href ? 'cursor-pointer hover:border-primary/50' : ''}`}>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground font-medium">{title}</p>
+            <p className="text-2xl font-bold mt-1 text-foreground">
+              {loading ? <span className="inline-block w-16 h-7 bg-muted rounded animate-pulse" /> : value}
+            </p>
+            {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+          </div>
+          <div className={`p-2.5 rounded-xl ${color}`}><Icon className="w-5 h-5" /></div>
         </div>
       </div>
-    </div>
-  );
+    );
+    return href ? <Link href={href}>{content}</Link> : content;
+  };
 
   return (
     <div>
       <TopNav title="Dashboard" description="Overview of relay model feedback and engineering activity" />
-
       <div className="p-6 space-y-6">
+
         {/* Stats grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <StatCard title="Relay Models" value={stats.totalModels} icon={Cpu} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+          <StatCard title="Relay Models" value={stats.totalModels} icon={Cpu} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" href="/relay-models" />
           <StatCard title="Total Feedback" value={stats.totalFeedback} icon={MessageSquare} color="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />
           <StatCard title="Open Issues" value={stats.openIssues} icon={AlertTriangle} color="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" />
           <StatCard title="Resolved" value={stats.closedIssues} icon={CheckCircle2} color="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" />
-          <StatCard title="Critical Issues" value={stats.criticalIssues} icon={AlertTriangle} color="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" />
-          <StatCard title="Avg Fix Hours" value={`${stats.avgFixHours}h`} icon={Clock} color="bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" subtitle="per issue" />
+          <StatCard title="Critical" value={stats.criticalIssues} icon={AlertTriangle} color="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" />
+          <StatCard title="Avg Fix Hours" value={`${stats.avgFixHours}h`} icon={Clock} color="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400" subtitle="per issue" />
+          <StatCard title="Total Ratings" value={stats.totalRatings} icon={Users} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" subtitle="user submitted" />
+          {isAdmin && (
+            <StatCard title="Needs Approval" value={stats.modelsNeedingApproval} icon={ShieldCheck} color="bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" subtitle="models to review" href="/admin" />
+          )}
         </div>
 
         {/* Charts row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Monthly trend */}
           <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-foreground text-sm">Issue Trend</h3>
-                <p className="text-xs text-muted-foreground">Last 6 months</p>
-              </div>
+              <div><h3 className="font-semibold text-foreground text-sm">Issue Trend</h3><p className="text-xs text-muted-foreground">Last 6 months</p></div>
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
             </div>
-            {loading ? (
-              <div className="h-52 bg-muted rounded-lg animate-pulse" />
-            ) : (
+            {loading ? <div className="h-52 bg-muted rounded-lg animate-pulse" /> : (
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={monthlyTrend}>
                   <defs>
                     <linearGradient id="colorOpen" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorResolved" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.2} /><stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
                   <YAxis tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                  />
+                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
                   <Legend wrapperStyle={{ fontSize: '12px' }} />
                   <Area type="monotone" dataKey="open" stroke="#3b82f6" fill="url(#colorOpen)" name="Open" strokeWidth={2} />
                   <Area type="monotone" dataKey="resolved" stroke="#22c55e" fill="url(#colorResolved)" name="Resolved" strokeWidth={2} />
@@ -245,42 +253,20 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Severity distribution */}
           <div className="bg-card border border-border rounded-xl p-5">
-            <div className="mb-4">
-              <h3 className="font-semibold text-foreground text-sm">Severity Distribution</h3>
-              <p className="text-xs text-muted-foreground">All time</p>
-            </div>
-            {loading ? (
-              <div className="h-52 bg-muted rounded-lg animate-pulse" />
-            ) : (
+            <div className="mb-4"><h3 className="font-semibold text-foreground text-sm">Severity Distribution</h3><p className="text-xs text-muted-foreground">All time</p></div>
+            {loading ? <div className="h-52 bg-muted rounded-lg animate-pulse" /> : (
               <>
                 <ResponsiveContainer width="100%" height={140}>
                   <PieChart>
-                    <Pie
-                      data={severityDist}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={60}
-                      dataKey="value"
-                    >
-                      {severityDist.map((entry, i) => (
-                        <Cell key={i} fill={entry.color} />
-                      ))}
+                    <Pie data={severityDist} cx="50%" cy="50%" innerRadius={40} outerRadius={60} dataKey="value">
+                      {severityDist.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                      }}
-                    />
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-2 mt-2">
-                  {severityDist.map((item) => (
+                  {severityDist.map(item => (
                     <div key={item.name} className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
@@ -295,82 +281,182 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Bottom row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Top problematic models */}
+        {/* Grade Distribution */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div><h3 className="font-semibold text-foreground text-sm">Community Grade Distribution</h3><p className="text-xs text-muted-foreground">Submitted quality and popularity ratings</p></div>
+            <Star className="w-4 h-4 text-muted-foreground" />
+          </div>
+          {loading ? <div className="h-40 bg-muted rounded-lg animate-pulse" /> : (
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={gradeDist}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="grade" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false} />
+                <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Bar dataKey="quality" name="Quality" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="popularity" name="Popularity" fill="#10b981" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* 4-column grade leaderboards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Highest quality */}
           <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="font-semibold text-foreground text-sm mb-4">Top Problematic Models</h3>
-            {loading ? (
-              <div className="space-y-3">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-8 bg-muted rounded animate-pulse" />
-                ))}
-              </div>
-            ) : topModels.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                No feedback data yet
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={topModels} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
-                  <YAxis
-                    type="category"
-                    dataKey="model_name"
-                    width={80}
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="count" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Issues" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2">
+              <Star className="w-4 h-4 text-blue-500" /> Highest Quality
+            </h3>
+            {loading ? <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div> :
+              topQualityModels.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">No grades yet</p> : (
+                <div className="space-y-2">
+                  {topQualityModels.map((m, i) => (
+                    <Link key={m.id} href={`/relay-models/${m.id}`} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-accent transition-colors group">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-muted-foreground w-4 flex-shrink-0">{i + 1}</span>
+                        <p className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors">{m.model_name}</p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <GradeBadge grade={m.grade} />
+                        {m.rater_count > 0 && <span className="text-xs text-muted-foreground">({m.rater_count})</span>}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
           </div>
 
-          {/* Most active users */}
+          {/* Lowest quality */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-500" /> Lowest Quality
+            </h3>
+            {loading ? <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div> :
+              lowestQualityModels.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">No grades yet</p> : (
+                <div className="space-y-2">
+                  {lowestQualityModels.map((m, i) => (
+                    <Link key={m.id} href={`/relay-models/${m.id}`} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-accent transition-colors group">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-muted-foreground w-4 flex-shrink-0">{i + 1}</span>
+                        <p className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors">{m.model_name}</p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <GradeBadge grade={m.grade} />
+                        {m.rater_count > 0 && <span className="text-xs text-muted-foreground">({m.rater_count})</span>}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+          </div>
+
+          {/* Most reviewed */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2">
+              <Users className="w-4 h-4 text-emerald-500" /> Most Reviewed
+            </h3>
+            {loading ? <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div> :
+              mostReviewed.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">No ratings yet</p> : (
+                <div className="space-y-2">
+                  {mostReviewed.map((m, i) => (
+                    <Link key={m.id} href={`/relay-models/${m.id}`} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-accent transition-colors group">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-muted-foreground w-4 flex-shrink-0">{i + 1}</span>
+                        <p className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors">{m.model_name}</p>
+                      </div>
+                      <span className="text-xs font-semibold text-muted-foreground flex-shrink-0 flex items-center gap-1"><Users className="w-3 h-3" />{m.rater_count}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+          </div>
+
+          {/* Conflicting ratings */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" /> Conflicting Ratings
+            </h3>
+            {loading ? <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div> :
+              conflicting.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">No conflicts</p> : (
+                <div className="space-y-2">
+                  {conflicting.map((m, i) => (
+                    <Link key={m.id} href={`/relay-models/${m.id}`} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-accent transition-colors group">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-muted-foreground w-4 flex-shrink-0">{i + 1}</span>
+                        <p className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors">{m.model_name}</p>
+                      </div>
+                      <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex-shrink-0">{m.spread} grade spread</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+          </div>
+        </div>
+
+        {/* Bottom row: Top complaints + active engineers + top raters */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="font-semibold text-foreground text-sm mb-4">Most Complained Models</h3>
+            {loading ? <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div> :
+              topModels.length === 0 ? <div className="text-center py-8 text-muted-foreground text-sm">No feedback yet</div> : (
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={topModels} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                    <YAxis type="category" dataKey="model_name" width={80} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
+                    <Bar dataKey="count" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Issues" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+          </div>
+
           <div className="bg-card border border-border rounded-xl p-5">
             <h3 className="font-semibold text-foreground text-sm mb-4">Most Active Engineers</h3>
-            {loading ? (
-              <div className="space-y-3">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-10 bg-muted rounded animate-pulse" />
-                ))}
-              </div>
-            ) : activeUsers.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                No user activity yet
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {activeUsers.map((user, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                      <span className="text-primary-foreground text-xs font-semibold">
-                        {user.full_name.charAt(0) || 'U'}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{user.full_name || user.email}</p>
-                      <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full"
-                          style={{ width: `${(user.count / (activeUsers[0]?.count || 1)) * 100}%` }}
-                        />
+            {loading ? <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-muted rounded animate-pulse" />)}</div> :
+              activeUsers.length === 0 ? <div className="text-center py-8 text-muted-foreground text-sm">No activity yet</div> : (
+                <div className="space-y-3">
+                  {activeUsers.map((u, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                        <span className="text-primary-foreground text-xs font-semibold">{u.full_name.charAt(0) || 'U'}</span>
                       </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{u.full_name || u.email}</p>
+                        <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-primary rounded-full" style={{ width: `${(u.count / (activeUsers[0]?.count || 1)) * 100}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-foreground ml-2">{u.count}</span>
                     </div>
-                    <span className="text-sm font-semibold text-foreground ml-2">{user.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+          </div>
+
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="font-semibold text-foreground text-sm mb-4 flex items-center gap-2"><Star className="w-4 h-4 text-amber-500" /> Top Raters</h3>
+            {loading ? <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-10 bg-muted rounded animate-pulse" />)}</div> :
+              topRaters.length === 0 ? <div className="text-center py-8 text-muted-foreground text-sm">No ratings yet</div> : (
+                <div className="space-y-3">
+                  {topRaters.map((u, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                        <span className="text-amber-700 dark:text-amber-400 text-xs font-semibold">{u.full_name.charAt(0) || 'U'}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{u.full_name || u.email}</p>
+                        <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-400 rounded-full" style={{ width: `${(u.count / (topRaters[0]?.count || 1)) * 100}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-foreground ml-2">{u.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
           </div>
         </div>
       </div>

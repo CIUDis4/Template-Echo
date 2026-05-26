@@ -1,5 +1,31 @@
 import { cn } from '@/lib/utils';
 
+const gradeConfig: Record<string, { className: string }> = {
+  'A+': { className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-300 dark:ring-emerald-700' },
+  'A':  { className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 ring-1 ring-green-300 dark:ring-green-700' },
+  'B':  { className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 ring-1 ring-blue-300 dark:ring-blue-700' },
+  'C':  { className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 ring-1 ring-orange-300 dark:ring-orange-700' },
+  'D':  { className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 ring-1 ring-red-300 dark:ring-red-700' },
+  'N/A':{ className: 'bg-muted text-muted-foreground ring-1 ring-border' },
+};
+
+interface GradeBadgeProps {
+  grade: string;
+  label?: string;
+  className?: string;
+}
+
+export function GradeBadge({ grade, label, className }: GradeBadgeProps) {
+  const config = gradeConfig[grade] ?? gradeConfig['N/A'];
+  return (
+    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tabular-nums', config.className, className)}>
+      {label ? `${label}: ` : ''}{grade}
+    </span>
+  );
+}
+
+export const GRADE_VALUES = ['A+', 'A', 'B', 'C', 'D', 'N/A'] as const;
+
 const severityConfig = {
   critical: { label: 'Critical', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
   high: { label: 'High', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
