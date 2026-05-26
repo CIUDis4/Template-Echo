@@ -1,5 +1,4 @@
 [build]
-  base = "TE v01"
   command = "npm run build"
 
 [[plugins]]
