@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 215 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 12%;
+    --primary: 213 94% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 16% 93%;
+    --secondary-foreground: 215 25% 20%;
+    --muted: 210 16% 94%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 16% 90%;
+    --accent-foreground: 215 25% 12%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 16% 88%;
+    --input: 210 16% 88%;
+    --ring: 213 94% 45%;
+    --radius: 0.625rem;
+
+    /* Custom brand colors */
+    --brand-50: 213 100% 97%;
+    --brand-100: 213 96% 93%;
+    --brand-200: 213 94% 85%;
+    --brand-500: 213 94% 45%;
+    --brand-600: 213 90% 38%;
+    --brand-700: 213 85% 32%;
+
+    /* Success */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 142 60% 95%;
+
+    /* Warning */
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 100% 15%;
+    --warning-muted: 38 100% 95%;
+
+    /* Sidebar */
+    --sidebar: 217 33% 17%;
+    --sidebar-foreground: 210 40% 88%;
+    --sidebar-muted: 215 20% 35%;
+    --sidebar-accent: 215 30% 25%;
+    --sidebar-border: 217 26% 22%;
+
+    /* Chart colors */
+    --chart-1: 213 94% 45%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 270 60% 55%;
+  }
+
+  .dark {
+    --background: 220 13% 9%;
+    --foreground: 210 40% 94%;
+    --card: 220 13% 12%;
+    --card-foreground: 210 40% 94%;
+    --popover: 220 13% 12%;
+    --popover-foreground: 210 40% 94%;
+    --primary: 213 94% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 18%;
+    --secondary-foreground: 210 40% 85%;
+    --muted: 220 13% 16%;
+    --muted-foreground: 215 16% 55%;
+    --accent: 220 13% 20%;
+    --accent-foreground: 210 40% 94%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 20%;
+    --input: 220 13% 20%;
+    --ring: 213 94% 55%;
+
+    --brand-50: 213 30% 15%;
+    --brand-100: 213 40% 20%;
+    --brand-200: 213 50% 28%;
+    --brand-500: 213 94% 55%;
+    --brand-600: 213 90% 65%;
+    --brand-700: 213 85% 72%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 142 30% 18%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 38 100% 10%;
+    --warning-muted: 38 50% 18%;
+
+    --sidebar: 220 13% 8%;
+    --sidebar-foreground: 210 40% 85%;
+    --sidebar-muted: 215 16% 45%;
+    --sidebar-accent: 220 13% 14%;
+    --sidebar-border: 220 13% 16%;
+
+    --chart-1: 213 94% 55%;
+    --chart-2: 142 71% 50%;
+    --chart-3: 38 92% 55%;
+    --chart-4: 0 84% 65%;
+    --chart-5: 270 60% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  .sidebar-bg {
+    background-color: hsl(var(--sidebar));
+    color: hsl(var(--sidebar-foreground));
+  }
+
+  .text-success {
+    color: hsl(var(--success));
+  }
+
+  .bg-success {
+    background-color: hsl(var(--success));
+    color: hsl(var(--success-foreground));
+  }
+
+  .bg-success-muted {
+    background-color: hsl(var(--success-muted));
+    color: hsl(var(--success));
+  }
+
+  .text-warning {
+    color: hsl(var(--warning));
+  }
+
+  .bg-warning-muted {
+    background-color: hsl(var(--warning-muted));
+    color: hsl(var(--warning));
+  }
+
+  .brand-gradient {
+    background: linear-gradient(135deg, hsl(var(--brand-500)), hsl(var(--brand-700)));
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+
+  .glass-card {
+    backdrop-filter: blur(10px);
+    background-color: rgba(255, 255, 255, 0.7);
+  }
+
+  .dark .glass-card {
+    background-color: rgba(15, 20, 30, 0.7);
+  }
+}
+
+/* Smooth transitions for theme switching */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Override for motion-sensitive users */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0ms !important;
+  }
+}
