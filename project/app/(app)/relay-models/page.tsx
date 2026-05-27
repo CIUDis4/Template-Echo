@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import type { RelayModel } from '@/lib/database.types';
@@ -8,12 +8,27 @@ import { computeCommunityGrade } from '@/lib/database.types';
 import { TopNav } from '@/components/top-nav';
 import { StatusBadge, GradeBadge, GRADE_VALUES } from '@/components/severity-badge';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, FileText, ExternalLink, ChevronLeft, ChevronRight, Star, TrendingUp, Users } from 'lucide-react';
+import { Plus, Search, FileText, ExternalLink, ChevronLeft, ChevronRight, Star, TrendingUp, Users, X } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+
+interface RaterInfo {
+  user_id: string;
+  quality_grade: string | null;
+  popularity_grade: string | null;
+  comment: string;
+  created_at: string;
+  full_name: string;
+  email: string;
+}
 
 interface RatingAggregate {
   relay_model_id: string;
   quality_grade: string | null;
   popularity_grade: string | null;
+  user_id: string;
+  comment: string;
+  created_at: string;
+  profiles?: { full_name: string; email: string } | { full_name: string; email: string }[] | null;
 }
 
 interface RelayModelWithMeta extends RelayModel {
@@ -21,12 +36,74 @@ interface RelayModelWithMeta extends RelayModel {
   community_quality: string;
   community_popularity: string;
   rating_count: number;
+  raters: RaterInfo[];
 }
 
 const MANUFACTURERS = ['All', 'ABB', 'ABB Westinghouse', 'Alstom', 'Basler', 'Beckwith', 'ERL', 'GE', 'Megger', 'Micom', 'Nari', 'PowerShield', 'Reyrole', 'SAS', 'Schneider', 'SEG', 'SEL', 'Sifang', 'SIEMENS', 'Woodward', 'ZIV', 'Alfanar_SEL'];
 const STATUSES = ['All', 'active', 'deprecated', 'review'];
 const GRADES = ['All', ...GRADE_VALUES];
 const PAGE_SIZE = 20;
+
+function RatersPopover({ raters, onClose }: { raters: RaterInfo[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute z-50 top-full mt-1.5 left-1/2 -translate-x-1/2 w-72 bg-card border border-border rounded-xl shadow-xl overflow-hidden"
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-muted/40">
+        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Users className="w-3.5 h-3.5" /> {raters.length} Rater{raters.length !== 1 ? 's' : ''}
+        </span>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="divide-y divide-border/50 max-h-64 overflow-y-auto">
+        {raters.map((r, i) => (
+          <div key={i} className="px-3 py-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">{r.full_name || r.email}</p>
+                <p className="text-xs text-muted-foreground truncate">{r.full_name ? r.email : ''}</p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {r.quality_grade && (
+                  <span className="flex items-center gap-0.5">
+                    <Star className="w-2.5 h-2.5 text-muted-foreground" />
+                    <GradeBadge grade={r.quality_grade} />
+                  </span>
+                )}
+                {r.popularity_grade && (
+                  <span className="flex items-center gap-0.5">
+                    <TrendingUp className="w-2.5 h-2.5 text-muted-foreground" />
+                    <GradeBadge grade={r.popularity_grade} />
+                  </span>
+                )}
+              </div>
+            </div>
+            {r.comment && (
+              <p className="text-xs text-muted-foreground italic mt-1 line-clamp-2">"{r.comment}"</p>
+            )}
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function RelayModelsPage() {
   const { profile } = useAuth();
@@ -40,6 +117,7 @@ export default function RelayModelsPage() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<'model_name' | 'feedback_count' | 'updated_at' | 'rating_count'>('model_name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [openRatersModelId, setOpenRatersModelId] = useState<string | null>(null);
 
   useEffect(() => {
     loadModels();
@@ -50,7 +128,9 @@ export default function RelayModelsPage() {
     const [modelsRes, feedbackRes, ratingsRes] = await Promise.all([
       supabase.from('relay_models').select('*').order('model_name', { ascending: true }),
       supabase.from('feedback_entries').select('relay_model_id'),
-      supabase.from('relay_model_ratings').select('relay_model_id, quality_grade, popularity_grade').eq('is_flagged', false),
+      supabase.from('relay_model_ratings')
+        .select('relay_model_id, user_id, quality_grade, popularity_grade, comment, created_at, profiles(full_name, email)')
+        .eq('is_flagged', false),
     ]);
 
     const feedbackCountMap = new Map<string, number>();
@@ -58,9 +138,8 @@ export default function RelayModelsPage() {
       feedbackCountMap.set(f.relay_model_id, (feedbackCountMap.get(f.relay_model_id) || 0) + 1);
     });
 
-    // Group ratings by model
     const ratingsByModel = new Map<string, RatingAggregate[]>();
-    (ratingsRes.data || []).forEach(r => {
+    ((ratingsRes.data || []) as RatingAggregate[]).forEach(r => {
       const arr = ratingsByModel.get(r.relay_model_id) || [];
       arr.push(r);
       ratingsByModel.set(r.relay_model_id, arr);
@@ -70,12 +149,25 @@ export default function RelayModelsPage() {
       const ratings = ratingsByModel.get(m.id) || [];
       const { grade: cq, count } = computeCommunityGrade(ratings, 'quality_grade');
       const { grade: cp } = computeCommunityGrade(ratings, 'popularity_grade');
+      const raters: RaterInfo[] = ratings.map(r => {
+        const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+        return {
+          user_id: r.user_id,
+          quality_grade: r.quality_grade,
+          popularity_grade: r.popularity_grade,
+          comment: r.comment,
+          created_at: r.created_at,
+          full_name: p?.full_name || '',
+          email: p?.email || '',
+        };
+      });
       return {
         ...m,
         feedback_count: feedbackCountMap.get(m.id) || 0,
         community_quality: cq,
         community_popularity: cp,
         rating_count: count,
+        raters,
       };
     });
 
@@ -83,7 +175,6 @@ export default function RelayModelsPage() {
     setLoading(false);
   };
 
-  // Effective display grade: official if set, else community
   const effectiveQuality = (m: RelayModelWithMeta) =>
     m.official_quality_grade && m.official_quality_grade !== 'N/A' ? m.official_quality_grade : m.community_quality;
   const effectivePopularity = (m: RelayModelWithMeta) =>
@@ -265,6 +356,8 @@ export default function RelayModelsPage() {
                     const displayPopularity = effectivePopularity(model);
                     const isOfficialQ = model.official_quality_grade && model.official_quality_grade !== 'N/A';
                     const isOfficialP = model.official_popularity_grade && model.official_popularity_grade !== 'N/A';
+                    const ratersOpen = openRatersModelId === model.id;
+
                     return (
                       <tr key={model.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors group">
                         <td className="px-4 py-3">
@@ -291,16 +384,34 @@ export default function RelayModelsPage() {
                             {isOfficialP && <span className="text-xs text-muted-foreground font-medium">✓</span>}
                           </div>
                         </td>
+
+                        {/* Raters cell with popover */}
                         <td className="px-4 py-3">
-                          {model.rating_count > 0 ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <Users className="w-3 h-3" />
-                              {model.rating_count}
-                            </span>
+                          {model.raters.length > 0 ? (
+                            <div className="relative">
+                              <button
+                                onClick={e => { e.stopPropagation(); setOpenRatersModelId(ratersOpen ? null : model.id); }}
+                                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                                  ratersOpen
+                                    ? 'bg-primary/10 text-primary border border-primary/30'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent'
+                                }`}
+                              >
+                                <Users className="w-3 h-3" />
+                                {model.raters.length}
+                              </button>
+                              {ratersOpen && (
+                                <RatersPopover
+                                  raters={model.raters}
+                                  onClose={() => setOpenRatersModelId(null)}
+                                />
+                              )}
+                            </div>
                           ) : (
                             <span className="text-xs text-muted-foreground/50">—</span>
                           )}
                         </td>
+
                         <td className="px-4 py-3">
                           {model.has_pdf ? (
                             <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
@@ -368,7 +479,7 @@ export default function RelayModelsPage() {
         {/* Legend */}
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><span className="font-medium">✓</span> Official admin grade</span>
-          <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Community consensus grade</span>
+          <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Click rater count to see who rated</span>
         </div>
       </div>
     </div>
