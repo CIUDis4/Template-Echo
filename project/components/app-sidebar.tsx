@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
   LayoutDashboard, Cpu, MessageSquare, Upload, Settings,
-  Users, Search, Activity, Zap, ChevronRight, LogOut, Moon, Sun,
+  Users, Search, Activity, Zap, ChevronRight, LogOut, Moon, Sun, BarChart3,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ const adminItems = [
   { href: '/import', label: 'Import Models', icon: Upload },
   { href: '/admin', label: 'Admin Panel', icon: Settings },
   { href: '/admin/users', label: 'User Management', icon: Users },
+  { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
 ];
 
 export function AppSidebar() {

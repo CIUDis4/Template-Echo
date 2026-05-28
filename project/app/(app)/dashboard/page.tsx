@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import {
   Cpu, MessageSquare, AlertTriangle, CheckCircle2, Clock, TrendingUp,
-  Star, Users, ShieldCheck, AlertCircle,
+  Star, Users, ShieldCheck, AlertCircle, BarChart3,
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import Link from 'next/link';
@@ -186,8 +186,24 @@ export default function DashboardPage() {
     }
   };
 
-  const StatCard = ({ title, value, icon: Icon, color, subtitle, href }: { title: string; value: string | number; icon: React.ElementType; color: string; subtitle?: string; href?: string }) => {
-    const content = (
+  const StatCard = ({ title, value, icon: Icon, color, subtitle, href, dark }: { title: string; value: string | number; icon: React.ElementType; color: string; subtitle?: string; href?: string; dark?: boolean }) => {
+    const content = dark ? (
+      <div className="relative overflow-hidden bg-gradient-to-br from-sky-700 to-blue-900 dark:from-sky-800 dark:to-blue-950 border border-sky-600/40 dark:border-sky-700/40 rounded-xl p-5 cursor-pointer shadow-md hover:shadow-sky-700/30 hover:shadow-lg transition-all duration-200 group">
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-gradient-to-br from-sky-600/20 to-blue-800/20" />
+        <div className="relative flex items-start justify-between">
+          <div>
+            <p className="text-sm font-semibold text-sky-100">{title}</p>
+            <p className="text-xl font-bold mt-1 text-white">
+              {loading ? <span className="inline-block w-20 h-6 bg-sky-600/40 rounded animate-pulse" /> : value}
+            </p>
+            {subtitle && <p className="text-xs text-sky-300 mt-0.5">{subtitle}</p>}
+          </div>
+          <div className="p-2.5 rounded-xl bg-white/15 text-white group-hover:bg-white/25 transition-colors duration-200">
+            <Icon className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
+    ) : (
       <div className={`bg-card border border-border rounded-xl p-5 hover:shadow-md transition-shadow ${href ? 'cursor-pointer hover:border-primary/50' : ''}`}>
         <div className="flex items-start justify-between">
           <div>
@@ -210,7 +226,7 @@ export default function DashboardPage() {
       <div className="p-6 space-y-6">
 
         {/* Stats grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+        <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 ${isAdmin ? 'xl:grid-cols-9' : 'xl:grid-cols-7'}`}>
           <StatCard title="Relay Models" value={stats.totalModels} icon={Cpu} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" href="/relay-models" />
           <StatCard title="Total Feedback" value={stats.totalFeedback} icon={MessageSquare} color="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />
           <StatCard title="Open Issues" value={stats.openIssues} icon={AlertTriangle} color="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" />
@@ -220,6 +236,9 @@ export default function DashboardPage() {
           <StatCard title="Total Ratings" value={stats.totalRatings} icon={Users} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" subtitle="user submitted" />
           {isAdmin && (
             <StatCard title="Needs Approval" value={stats.modelsNeedingApproval} icon={ShieldCheck} color="bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" subtitle="models to review" href="/admin" />
+          )}
+          {isAdmin && (
+            <StatCard title="Generate Reports" value="12 templates" icon={BarChart3} color="" subtitle="Export analytics & reports" href="/admin/reports" dark />
           )}
         </div>
 
