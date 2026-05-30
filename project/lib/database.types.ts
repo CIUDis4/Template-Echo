@@ -255,6 +255,75 @@ export type RelayModelRating = Database['public']['Tables']['relay_model_ratings
 
 export type TemplateUsage = Database['public']['Tables']['template_usages']['Row'];
 
+// ============================================================
+// Driver Bug Tracker types
+// ============================================================
+
+export type BugStatus = 'New' | 'Open' | 'In Progress' | 'Testing' | 'Resolved' | 'Closed' | 'Deferred' | 'Duplicate' | 'Rejected';
+export type BugPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+export type BugSeverity = 'Minor' | 'Major' | 'Critical' | 'Blocker';
+export type BugReproducibility = 'Always' | 'Often' | 'Sometimes' | 'Rarely' | 'Unable' | 'N/A';
+
+export interface DriverBug {
+  id: string;
+  bug_number: number;
+  title: string;
+  description: string;
+  status: BugStatus;
+  priority: BugPriority;
+  severity: BugSeverity;
+  reproducibility: BugReproducibility;
+  software_version: string;
+  build_version: string;
+  affected_module: string;
+  affected_driver: string;
+  operating_system: string;
+  browser: string;
+  expected_behavior: string;
+  actual_behavior: string;
+  steps_to_reproduce: string;
+  workaround: string;
+  additional_notes: string;
+  reporter_id: string;
+  assigned_to_id: string | null;
+  assigned_at: string | null;
+  due_date: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BugComment {
+  id: string;
+  bug_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BugAttachment {
+  id: string;
+  bug_id: string;
+  comment_id: string | null;
+  uploader_id: string;
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  storage_path: string;
+  created_at: string;
+}
+
+export interface BugHistory {
+  id: string;
+  bug_id: string;
+  changed_by_id: string;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_at: string;
+}
+
 export type GradeValue = 'A+' | 'A' | 'B' | 'C' | 'D' | 'N/A';
 
 export interface GradeSuggestion {

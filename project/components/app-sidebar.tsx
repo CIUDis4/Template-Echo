@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
   LayoutDashboard, Cpu, MessageSquare, Upload, Settings,
-  Users, Search, Activity, Zap, ChevronRight, LogOut, Moon, Sun, BarChart3,
+  Users, Search, Activity, Zap, ChevronRight, LogOut, Moon, Sun, BarChart3, Bug,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/relay-models', label: 'Relay Models', icon: Cpu },
   { href: '/feedback', label: 'Feedback', icon: MessageSquare },
+  { href: '/bugs', label: 'Driver Bug Tracker', icon: Bug },
   { href: '/search', label: 'Search', icon: Search },
   { href: '/activity', label: 'Activity Log', icon: Activity },
 ];
