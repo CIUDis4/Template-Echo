@@ -190,6 +190,29 @@ export interface Database {
           uploaded_at?: string;
         };
       };
+      template_usages: {
+        Row: {
+          id: string;
+          relay_model_id: string;
+          user_id: string;
+          count: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          relay_model_id: string;
+          user_id: string;
+          count?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          relay_model_id?: string;
+          user_id?: string;
+          count?: number;
+          created_at?: string;
+        };
+      };
       activity_logs: {
         Row: {
           id: string;
@@ -229,6 +252,8 @@ export type FeedbackEntry = Database['public']['Tables']['feedback_entries']['Ro
 export type FeedbackAttachment = Database['public']['Tables']['feedback_attachments']['Row'];
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row'];
 export type RelayModelRating = Database['public']['Tables']['relay_model_ratings']['Row'];
+
+export type TemplateUsage = Database['public']['Tables']['template_usages']['Row'];
 
 export type GradeValue = 'A+' | 'A' | 'B' | 'C' | 'D' | 'N/A';
 

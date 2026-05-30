@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import {
   ChevronLeft, Plus, Edit2, Trash2, FileText, Image, File,
   Download, Clock, User, CheckCircle2, Loader2, X,
-  Star, TrendingUp, Users, Flag, ShieldCheck, ChevronDown, ChevronUp,
+  Star, TrendingUp, Users, Flag, ShieldCheck, ChevronDown, ChevronUp, MapPin, Check,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -36,6 +36,14 @@ export default function RelayModelDetailPage() {
   const [ratings, setRatings] = useState<RelayModelRatingWithProfile[]>([]);
   const [myRating, setMyRating] = useState<RelayModelRatingWithProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Usage / sightings state
+  const [sightings, setSightings] = useState<Array<{ user_id: string; full_name: string; email: string; count: number; created_at: string }>>([]);
+  const [mySighting, setMySighting] = useState<{ count: number } | null>(null);
+  const [showSightingsModal, setShowSightingsModal] = useState(false);
+  const [sightingInput, setSightingInput] = useState('');
+  const [editingSighting, setEditingSighting] = useState(false);
+  const [savingSighting, setSavingSighting] = useState(false);
 
   // Feedback form state
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
@@ -68,10 +76,11 @@ export default function RelayModelDetailPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const [modelRes, feedbackRes, ratingsRes] = await Promise.all([
+    const [modelRes, feedbackRes, ratingsRes, usagesRes] = await Promise.all([
       supabase.from('relay_models').select('*').eq('id', id).maybeSingle(),
       supabase.from('feedback_entries').select('*, profiles(*), feedback_attachments(*)').eq('relay_model_id', id).order('created_at', { ascending: false }),
       supabase.from('relay_model_ratings').select('*, profiles(*)').eq('relay_model_id', id),
+      supabase.from('template_usages').select('user_id, count, created_at, profiles(full_name, email)').eq('relay_model_id', id),
     ]);
 
     if (modelRes.error || !modelRes.data) {
@@ -88,6 +97,15 @@ export default function RelayModelDetailPage() {
     const allRatings = (ratingsRes.data || []) as RelayModelRatingWithProfile[];
     setRatings(allRatings);
 
+    const usages = (usagesRes.data || []) as Array<{ user_id: string; count: number; created_at: string; profiles: { full_name: string; email: string } | { full_name: string; email: string }[] | null }>;
+    const sightingList = usages.map(u => {
+      const p = Array.isArray(u.profiles) ? u.profiles[0] : u.profiles;
+      return { user_id: u.user_id, full_name: p?.full_name || '', email: p?.email || '', count: u.count, created_at: u.created_at };
+    });
+    setSightings(sightingList);
+    const myUsage = user ? usages.find(u => u.user_id === user.id) || null : null;
+    setMySighting(myUsage ? { count: myUsage.count } : null);
+
     const mine = user ? allRatings.find(r => r.user_id === user.id) || null : null;
     setMyRating(mine);
     if (mine) {
@@ -97,6 +115,44 @@ export default function RelayModelDetailPage() {
     }
 
     setLoading(false);
+  };
+
+  const handleSaveSighting = async () => {
+    if (!user) return;
+    const n = parseInt(sightingInput, 10);
+    if (isNaN(n) || n < 1) { setEditingSighting(false); return; }
+    setSavingSighting(true);
+    try {
+      if (mySighting) {
+        await supabase.from('template_usages').update({ count: n }).eq('relay_model_id', id).eq('user_id', user.id);
+        toast.success('Sighting count updated');
+      } else {
+        await supabase.from('template_usages').insert({ relay_model_id: id, user_id: user.id, count: n });
+        toast.success('Sighting count saved');
+      }
+      setEditingSighting(false);
+      await loadData();
+    } catch {
+      toast.error('Failed to save sighting count');
+    } finally {
+      setSavingSighting(false);
+    }
+  };
+
+  const handleRemoveSighting = async () => {
+    if (!user) return;
+    setSavingSighting(true);
+    try {
+      await supabase.from('template_usages').delete().eq('relay_model_id', id).eq('user_id', user.id);
+      toast.success('Sighting removed');
+      setMySighting(null);
+      setEditingSighting(false);
+      await loadData();
+    } catch {
+      toast.error('Failed to remove sighting');
+    } finally {
+      setSavingSighting(false);
+    }
   };
 
   const handleSaveRating = async () => {
@@ -281,6 +337,7 @@ export default function RelayModelDetailPage() {
   );
 
   return (
+    <>
     <div>
       <TopNav
         title={model.model_name}
@@ -340,9 +397,77 @@ export default function RelayModelDetailPage() {
                 <p className="text-2xl font-bold text-blue-500">{totalHours.toFixed(1)}h</p>
                 <p className="text-xs text-muted-foreground">Est. Work</p>
               </div>
+              <div className="text-center">
+                <button
+                  onClick={() => setShowSightingsModal(true)}
+                  className={`text-2xl font-bold transition-colors ${sightings.length > 0 ? 'text-teal-500 hover:text-teal-600 cursor-pointer' : 'text-muted-foreground cursor-default'}`}
+                  disabled={sightings.length === 0}
+                  title={sightings.length > 0 ? 'Click to see market sightings breakdown' : 'No sightings reported yet'}
+                >
+                  {sightings.reduce((s, u) => s + u.count, 0)}
+                </button>
+                <p className="text-xs text-muted-foreground">Count</p>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Market sightings banner */}
+        {user && (
+          <div className={`flex items-center justify-between px-5 py-3.5 rounded-xl border ${mySighting ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800/50' : 'bg-card border-border'}`}>
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className={`p-2 rounded-lg flex-shrink-0 ${mySighting ? 'bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400' : 'bg-muted text-muted-foreground'}`}>
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  How many customer sites have you seen this relay at?
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {sightings.reduce((s, u) => s + u.count, 0)} total sightings from {sightings.length} engineer{sightings.length !== 1 ? 's' : ''}
+                  {sightings.length > 0 && (
+                    <button onClick={() => setShowSightingsModal(true)} className="ml-1.5 text-teal-600 dark:text-teal-400 hover:underline">View breakdown</button>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+              {mySighting && !editingSighting && (
+                <span className="text-sm text-teal-700 dark:text-teal-300 font-semibold">Your count: {mySighting.count}</span>
+              )}
+              {editingSighting ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    value={sightingInput}
+                    onChange={e => setSightingInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveSighting(); if (e.key === 'Escape') setEditingSighting(false); }}
+                    className="w-20 px-2.5 py-1.5 text-sm border border-teal-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400 bg-background"
+                    placeholder="e.g. 3"
+                    autoFocus
+                  />
+                  <button onClick={handleSaveSighting} disabled={savingSighting} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-lg transition-colors">
+                    {savingSighting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Save
+                  </button>
+                  <button onClick={() => setEditingSighting(false)} className="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-accent transition-colors">Cancel</button>
+                  {mySighting && (
+                    <button onClick={handleRemoveSighting} disabled={savingSighting} className="px-3 py-1.5 text-sm text-destructive border border-destructive/30 rounded-lg hover:bg-destructive/10 transition-colors">Remove</button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setSightingInput(String(mySighting?.count ?? '')); setEditingSighting(true); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${mySighting ? 'bg-teal-500 hover:bg-teal-600 text-white shadow-sm' : 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm'}`}
+                >
+                  <MapPin className="w-4 h-4" />
+                  {mySighting ? 'Edit my count' : 'Add my count'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Grades Card */}
         <div className="bg-card border border-border rounded-xl p-5">
@@ -744,5 +869,48 @@ export default function RelayModelDetailPage() {
         </div>
       </div>
     </div>
+
+    {/* Sightings Modal */}
+    {showSightingsModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowSightingsModal(false)} />
+        <div className="relative w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+            <div>
+              <h2 className="font-semibold text-foreground text-sm flex items-center gap-2"><MapPin className="w-4 h-4 text-teal-500" /> Market Sightings</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {model?.model_name} · {sightings.reduce((s, u) => s + u.count, 0)} total from {sightings.length} engineer{sightings.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <button onClick={() => setShowSightingsModal(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><X className="w-4 h-4" /></button>
+          </div>
+          {sightings.length === 0 ? (
+            <div className="px-5 py-10 text-center text-sm text-muted-foreground">No sightings reported yet.</div>
+          ) : (
+            <div className="divide-y divide-border/50 max-h-80 overflow-y-auto">
+              {[...sightings].sort((a, b) => b.count - a.count).map(u => (
+                <div key={u.user_id} className="flex items-center gap-3 px-5 py-3">
+                  <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-teal-700 dark:text-teal-400 text-xs font-semibold">{(u.full_name || u.email).charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{u.full_name || u.email}</p>
+                    {u.full_name && <p className="text-xs text-muted-foreground truncate">{u.email}</p>}
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <p className="text-sm font-bold text-teal-600 dark:text-teal-400">{u.count}</p>
+                    <p className="text-xs text-muted-foreground">sighting{u.count !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="px-5 py-3 border-t border-border bg-muted/20">
+            <p className="text-xs text-muted-foreground text-center">Each engineer reports how many customer sites they have seen this relay deployed at.</p>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

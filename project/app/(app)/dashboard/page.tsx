@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import {
   Cpu, MessageSquare, AlertTriangle, CheckCircle2, Clock, TrendingUp,
-  Star, Users, ShieldCheck, AlertCircle, BarChart3,
+  Star, Users, ShieldCheck, AlertCircle, BarChart3, MapPin,
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import Link from 'next/link';
@@ -30,6 +30,7 @@ interface Stats {
 
 interface MonthlyTrend { month: string; open: number; resolved: number; }
 interface TopModel { id: string; model_name: string; manufacturer: string; count: number; }
+interface MostUsedModel { id: string; model_name: string; manufacturer: string; usage_count: number; }
 interface ActiveUser { full_name: string; email: string; count: number; }
 interface GradedModel { id: string; model_name: string; manufacturer: string; grade: string; rater_count: number; }
 interface GradeDist { grade: string; quality: number; popularity: number; }
@@ -54,6 +55,8 @@ export default function DashboardPage() {
   const [conflicting, setConflicting] = useState<ConflictingModel[]>([]);
   const [gradeDist, setGradeDist] = useState<GradeDist[]>([]);
   const [topRaters, setTopRaters] = useState<TopRater[]>([]);
+  const [mostUsed, setMostUsed] = useState<MostUsedModel[]>([]);
+  const [totalActiveUsers, setTotalActiveUsers] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadDashboardData(); }, []);
@@ -61,11 +64,12 @@ export default function DashboardPage() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [modelsRes, feedbackRes, profilesRes, ratingsRes] = await Promise.all([
+      const [modelsRes, feedbackRes, profilesRes, ratingsRes, usagesRes] = await Promise.all([
         supabase.from('relay_models').select('id, model_name, manufacturer, official_quality_grade, official_popularity_grade', { count: 'exact' }),
         supabase.from('feedback_entries').select('*'),
         supabase.from('profiles').select('id, full_name, email'),
         supabase.from('relay_model_ratings').select('relay_model_id, user_id, quality_grade, popularity_grade, is_flagged, created_at').eq('is_flagged', false),
+        supabase.from('template_usages').select('relay_model_id, user_id, count'),
       ]);
 
       const models: Array<{ id: string; model_name: string; manufacturer: string; official_quality_grade: string; official_popularity_grade: string }> = modelsRes.data || [];
@@ -181,6 +185,23 @@ export default function DashboardPage() {
       ratings.forEach(r => userRateCounts.set(r.user_id, (userRateCounts.get(r.user_id) || 0) + 1));
       setTopRaters(Array.from(userRateCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([uid, count]) => { const p = profileMap.get(uid); return { full_name: p?.full_name || 'Unknown', email: p?.email || '', count }; }));
 
+      // Most used templates — sum of counts per model
+      const usages: Array<{ relay_model_id: string; user_id: string; count: number }> = usagesRes.data || [];
+      const modelUsageCount = new Map<string, number>();
+      usages.forEach(u => modelUsageCount.set(u.relay_model_id, (modelUsageCount.get(u.relay_model_id) || 0) + u.count));
+      const mostUsedList = Array.from(modelUsageCount.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([mid, usage_count]) => {
+          const m = models.find(mo => mo.id === mid);
+          return { id: mid, model_name: m?.model_name || 'Unknown', manufacturer: m?.manufacturer || '', usage_count };
+        });
+      setMostUsed(mostUsedList);
+
+      // Total sightings count
+      const totalSightings = usages.reduce((s, u) => s + u.count, 0);
+      setTotalActiveUsers(totalSightings);
+
     } finally {
       setLoading(false);
     }
@@ -226,7 +247,7 @@ export default function DashboardPage() {
       <div className="p-6 space-y-6">
 
         {/* Stats grid */}
-        <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 ${isAdmin ? 'xl:grid-cols-9' : 'xl:grid-cols-7'}`}>
+        <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 ${isAdmin ? 'xl:grid-cols-10' : 'xl:grid-cols-8'}`}>
           <StatCard title="Relay Models" value={stats.totalModels} icon={Cpu} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" href="/relay-models" />
           <StatCard title="Total Feedback" value={stats.totalFeedback} icon={MessageSquare} color="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />
           <StatCard title="Open Issues" value={stats.openIssues} icon={AlertTriangle} color="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" />
@@ -234,6 +255,7 @@ export default function DashboardPage() {
           <StatCard title="Critical" value={stats.criticalIssues} icon={AlertTriangle} color="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" />
           <StatCard title="Avg Fix Hours" value={`${stats.avgFixHours}h`} icon={Clock} color="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400" subtitle="per issue" />
           <StatCard title="Total Ratings" value={stats.totalRatings} icon={Users} color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" subtitle="user submitted" />
+          <StatCard title="Total Market Sightings" value={totalActiveUsers} icon={MapPin} color="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400" subtitle="across all relay models" href="/relay-models" />
           {isAdmin && (
             <StatCard title="Needs Approval" value={stats.modelsNeedingApproval} icon={ShieldCheck} color="bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" subtitle="models to review" href="/admin" />
           )}
@@ -412,6 +434,36 @@ export default function DashboardPage() {
                 </div>
               )}
           </div>
+        </div>
+
+        {/* Most Used Templates */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-foreground text-sm flex items-center gap-2"><MapPin className="w-4 h-4 text-teal-500" /> Most Sighted Templates</h3>
+              <p className="text-xs text-muted-foreground">Top 10 relay models by total market sightings</p>
+            </div>
+            <Link href="/relay-models" className="text-xs text-muted-foreground hover:text-primary transition-colors">View all</Link>
+          </div>
+          {loading ? <div className="h-64 bg-muted rounded-lg animate-pulse" /> :
+            mostUsed.length === 0 ? <div className="text-center py-10 text-muted-foreground text-sm">No templates marked as in use yet.<br /><span className="text-xs">Engineers can click "I Use This Template" on any relay model.</span></div> : (
+              <div className="space-y-2.5">
+                {mostUsed.map((m, i) => (
+                  <Link key={m.id} href={`/relay-models/${m.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent transition-colors group">
+                    <span className="text-xs text-muted-foreground w-5 flex-shrink-0 font-medium">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors">{m.model_name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{m.manufacturer}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div className="h-2 bg-muted rounded-full overflow-hidden" style={{ width: `${Math.max(24, (m.usage_count / (mostUsed[0]?.usage_count || 1)) * 80)}px` }}>
+                        <div className="h-full bg-teal-500 rounded-full" style={{ width: '100%' }} />
+                      </div>
+                      <span className="text-xs font-semibold text-teal-600 dark:text-teal-400 min-w-[24px] text-right">{m.usage_count}</span>                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
         </div>
 
         {/* Bottom row: Top complaints + active engineers + top raters */}

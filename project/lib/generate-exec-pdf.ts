@@ -961,6 +961,110 @@ export async function generateExecPDF(data: ExecReportData): Promise<void> {
   });
 
   // ══════════════════════════════════════════════════════
+  // PAGE 6 — MOST USED TEMPLATES
+  // ══════════════════════════════════════════════════════
+  if (data.mostUsedTemplates.length > 0) {
+    doc.addPage();
+    pg++;
+    hdr(doc, 'Community Usage Intelligence', pg, 'Most Used Templates');
+    ftr(doc, data.generatedAt);
+
+    y = 16;
+    y = secTitle(doc, y, '16  Top 20 Most Used Relay Templates — Engineer Usage Count', C.teal);
+    y += 2;
+
+    // Intro blurb
+    doc.setTextColor(...C.slate);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    const blurb = `The following relay templates have been marked "In Use" by the highest number of engineers on the platform. Usage count reflects unique engineers actively working with each template, independent of quality or popularity ratings.`;
+    const blurbLines = doc.splitTextToSize(blurb, CW);
+    doc.text(blurbLines, M, y);
+    y += blurbLines.length * 4.5 + 5;
+
+    // Bar chart — top 10 visual
+    const top10 = data.mostUsedTemplates.slice(0, 10);
+    const maxUsage = Math.max(...top10.map(t => t.usage_count), 1);
+    const barAreaW = CW - 70;
+    top10.forEach((t, i) => {
+      const by = y + i * 9;
+      const bw = (t.usage_count / maxUsage) * barAreaW;
+      doc.setTextColor(...C.slate);
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'normal');
+      const lbl = t.model_name.length > 24 ? t.model_name.slice(0, 23) + '…' : t.model_name;
+      doc.text(lbl, M, by + 6);
+      roundRect(doc, M + 68, by, barAreaW, 6.5, 1, C.slateLight);
+      const barColor: [number,number,number] = i < 3 ? C.teal : i < 6 ? C.blue : C.slate;
+      if (bw > 0) roundRect(doc, M + 68, by, bw, 6.5, 1, barColor);
+      doc.setTextColor(...C.muted);
+      doc.setFontSize(6);
+      doc.text(String(t.usage_count), M + 68 + barAreaW + 3, by + 5);
+    });
+    y += top10.length * 9 + 8;
+
+    // Full table — all 20
+    y = secTitle(doc, y, '  Complete Usage Ranking', C.teal);
+    y += 2;
+
+    const uCols = [55, 32, 22, 18, 20, 20, 15];
+    const uHdrs = ['Model Name', 'Manufacturer', 'Relay Family', 'Usage', 'Quality', 'Popularity', 'Rank'];
+    roundRect(doc, M, y, CW, 7, 0, C.teal);
+    doc.setTextColor(...C.white);
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    cx2 = M + 2;
+    uHdrs.forEach((h, i) => { doc.text(h, cx2, y + 4.8); cx2 += uCols[i]; });
+    y += 7;
+
+    data.mostUsedTemplates.forEach((t, idx) => {
+      if (y > H - 20) {
+        doc.addPage();
+        pg++;
+        hdr(doc, 'Most Used Templates (continued)', pg, 'Community Usage Intelligence');
+        ftr(doc, data.generatedAt);
+        y = 16;
+        roundRect(doc, M, y, CW, 7, 0, C.teal);
+        doc.setTextColor(...C.white);
+        doc.setFontSize(6.5);
+        doc.setFont('helvetica', 'bold');
+        cx2 = M + 2;
+        uHdrs.forEach((h, i) => { doc.text(h, cx2, y + 4.8); cx2 += uCols[i]; });
+        y += 7;
+      }
+      const rowBg: [number,number,number] = idx % 2 === 0 ? C.slateLight : C.white;
+      roundRect(doc, M, y, CW, 6.5, 0, rowBg);
+      // rank medal stripe
+      const stripeColor: [number,number,number] = idx === 0 ? C.gold : idx === 1 ? C.muted : idx === 2 ? C.teal : C.slateMid;
+      doc.setFillColor(...stripeColor);
+      doc.rect(M, y, 2, 6.5, 'F');
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'normal');
+      cx2 = M + 2;
+      const uCells = [t.model_name.slice(0, 30), t.manufacturer.slice(0, 19), (t.relay_family || '—').slice(0, 14), String(t.usage_count), t.quality_grade, t.popularity_grade, `#${idx + 1}`];
+      uCells.forEach((c, i) => {
+        if (i === 3) {
+          doc.setTextColor(...C.teal);
+          doc.setFont('helvetica', 'bold');
+        } else if (i === 4 || i === 5) {
+          const gc = c === 'A+' ? C.green : c === 'A' ? C.teal : c === 'B' ? C.blue : c === 'C' || c === 'D' ? C.amber : C.muted;
+          doc.setTextColor(...gc);
+          doc.setFont('helvetica', 'normal');
+        } else if (i === 6) {
+          doc.setTextColor(...C.muted);
+          doc.setFont('helvetica', 'normal');
+        } else {
+          doc.setTextColor(...C.black);
+          doc.setFont('helvetica', 'normal');
+        }
+        doc.text(c, cx2, y + 4.5);
+        cx2 += uCols[i];
+      });
+      y += 6.5;
+    });
+  }
+
+  // ══════════════════════════════════════════════════════
   // PAGE 6+ — APPENDIX
   // ══════════════════════════════════════════════════════
   doc.addPage();
@@ -969,7 +1073,7 @@ export async function generateExecPDF(data: ExecReportData): Promise<void> {
   ftr(doc, data.generatedAt);
 
   y = 16;
-  y = secTitle(doc, y, '16  Detailed Feedback Register', C.slate);
+  y = secTitle(doc, y, '17  Detailed Feedback Register', C.slate);
   y += 2;
 
   const aCols = [58, 30, 20, 22, 22, 24, 8];

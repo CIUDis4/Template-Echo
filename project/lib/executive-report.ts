@@ -62,6 +62,15 @@ export interface TopRatedModel {
   popularity_grade: string;
 }
 
+export interface MostUsedTemplate {
+  model_name: string;
+  manufacturer: string;
+  relay_family: string;
+  usage_count: number;
+  quality_grade: string;
+  popularity_grade: string;
+}
+
 export interface ActionItem {
   priority: 'critical' | 'high' | 'medium' | 'low';
   text: string;
@@ -124,6 +133,7 @@ export interface ExecReportData {
   ratingDist: RatingDist[];
   problematicModels: ProblematicModel[];
   topRatedModels: TopRatedModel[];
+  mostUsedTemplates: MostUsedTemplate[];
   familyRiskMatrix: FamilyRiskRow[];
   workloadForecast: WorkloadForecast[];
   healthScore: HealthScore;
@@ -386,17 +396,19 @@ function kpiDelta(current: number, prev: number, lowerIsBetter = false): KpiDelt
 }
 
 export async function fetchExecReportData(filters: ExecReportFilters, generatedBy: string): Promise<ExecReportData> {
-  const [modelsRes, feedbackRes, ratingsRes, profilesRes] = await Promise.all([
+  const [modelsRes, feedbackRes, ratingsRes, profilesRes, usagesRes] = await Promise.all([
     supabase.from('relay_models').select('id, model_name, manufacturer, relay_family, status, official_quality_grade, official_popularity_grade'),
     supabase.from('feedback_entries').select('id, title, severity, status, estimated_fix_hours, created_at, updated_at, relay_model_id, user_id, relay_models(model_name, manufacturer, relay_family), profiles(full_name, email)'),
     supabase.from('relay_model_ratings').select('id, relay_model_id, quality_grade, popularity_grade, is_flagged, created_at'),
     supabase.from('profiles').select('id, full_name, email, active'),
+    supabase.from('template_usages').select('relay_model_id, user_id, count'),
   ]);
 
   const allModels = modelsRes.data || [];
   let allFeedback = (feedbackRes.data || []) as any[];
   const allRatings = ratingsRes.data || [];
   const allProfiles = profilesRes.data || [];
+  const allUsages = (usagesRes.data || []) as Array<{ relay_model_id: string; user_id: string; count: number }>;
 
   // Previous period feedback for delta calculation (prior 6m)
   const now = new Date();
@@ -569,6 +581,22 @@ export async function fetchExecReportData(filters: ExecReportFilters, generatedB
       popularity_grade: m.official_popularity_grade || 'N/A',
     }));
 
+  // Most used templates — sum of sighting counts per model
+  const usageCountMap = new Map<string, number>();
+  allUsages.forEach(u => usageCountMap.set(u.relay_model_id, (usageCountMap.get(u.relay_model_id) || 0) + u.count));
+  const mostUsedTemplates: MostUsedTemplate[] = filteredModels
+    .filter(m => (usageCountMap.get(m.id) || 0) > 0)
+    .sort((a, b) => (usageCountMap.get(b.id) || 0) - (usageCountMap.get(a.id) || 0))
+    .slice(0, 20)
+    .map(m => ({
+      model_name: m.model_name,
+      manufacturer: m.manufacturer,
+      relay_family: m.relay_family || '',
+      usage_count: usageCountMap.get(m.id) || 0,
+      quality_grade: m.official_quality_grade || 'N/A',
+      popularity_grade: m.official_popularity_grade || 'N/A',
+    }));
+
   // Family risk matrix
   const familyMap = new Map<string, { critical: number; high: number; medium: number; low: number; total: number }>();
   filtered.forEach((f: any) => {
@@ -644,6 +672,7 @@ export async function fetchExecReportData(filters: ExecReportFilters, generatedB
     ratingDist,
     problematicModels,
     topRatedModels,
+    mostUsedTemplates,
     familyRiskMatrix,
     workloadForecast,
     healthScore,
