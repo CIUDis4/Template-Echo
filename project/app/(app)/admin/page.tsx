@@ -60,7 +60,8 @@ export default function AdminPage() {
 
   const [formData, setFormData] = useState({
     model_name: '', manufacturer: '', relay_family: '',
-    firmware_version: '', template_version: '', status: 'active' as RelayModel['status'],
+    firmware_version: '', template_version: '', cloud_mod_date: '',
+    status: 'active' as RelayModel['status'],
     has_pdf: false,
   });
 
@@ -124,14 +125,16 @@ export default function AdminPage() {
     setFormData({
       model_name: m.model_name, manufacturer: m.manufacturer,
       relay_family: m.relay_family, firmware_version: m.firmware_version,
-      template_version: m.template_version, status: m.status, has_pdf: m.has_pdf,
+      template_version: m.template_version,
+      cloud_mod_date: m.cloud_mod_date ? new Date(m.cloud_mod_date).toISOString().split('T')[0] : '',
+      status: m.status, has_pdf: m.has_pdf,
     });
     setShowAddModel(false);
   };
 
   const startAdd = () => {
     setEditingModel(null);
-    setFormData({ model_name: '', manufacturer: '', relay_family: '', firmware_version: '', template_version: '', status: 'active', has_pdf: false });
+    setFormData({ model_name: '', manufacturer: '', relay_family: '', firmware_version: '', template_version: '', cloud_mod_date: '', status: 'active', has_pdf: false });
     setShowAddModel(true);
   };
 
@@ -139,12 +142,22 @@ export default function AdminPage() {
     e.preventDefault();
     if (!formData.model_name.trim()) { toast.error('Model name required'); return; }
     setSaving(true);
+    const payload = {
+      model_name: formData.model_name,
+      manufacturer: formData.manufacturer,
+      relay_family: formData.relay_family,
+      firmware_version: formData.firmware_version,
+      template_version: formData.template_version,
+      status: formData.status,
+      has_pdf: formData.has_pdf,
+      cloud_mod_date: formData.cloud_mod_date ? new Date(formData.cloud_mod_date).toISOString() : null,
+    };
     if (editingModel) {
-      const { error } = await supabase.from('relay_models').update(formData).eq('id', editingModel.id);
+      const { error } = await supabase.from('relay_models').update(payload).eq('id', editingModel.id);
       if (error) toast.error(error.message);
       else { toast.success('Model updated'); setEditingModel(null); loadModels(); }
     } else {
-      const { error } = await supabase.from('relay_models').insert(formData);
+      const { error } = await supabase.from('relay_models').insert(payload);
       if (error) toast.error(error.message);
       else { toast.success('Model added'); setShowAddModel(false); loadModels(); }
     }
@@ -213,12 +226,20 @@ export default function AdminPage() {
             <input value={formData.manufacturer} onChange={e => setFormData(p => ({ ...p, manufacturer: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Template Version</label>
-            <input value={formData.template_version} onChange={e => setFormData(p => ({ ...p, template_version: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Relay Family</label>
+            <input value={formData.relay_family} onChange={e => setFormData(p => ({ ...p, relay_family: e.target.value }))} placeholder="e.g. REF600" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Cloud Min RTMS (Template Version)</label>
+            <input value={formData.template_version} onChange={e => setFormData(p => ({ ...p, template_version: e.target.value }))} placeholder="e.g. D100.53.36.17" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
           </div>
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">Firmware Version</label>
-            <input value={formData.firmware_version} onChange={e => setFormData(p => ({ ...p, firmware_version: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+            <input value={formData.firmware_version} onChange={e => setFormData(p => ({ ...p, firmware_version: e.target.value }))} placeholder="e.g. 4.1.4" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Cloud Mod Date</label>
+            <input type="date" value={formData.cloud_mod_date} onChange={e => setFormData(p => ({ ...p, cloud_mod_date: e.target.value }))} className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
           </div>
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
