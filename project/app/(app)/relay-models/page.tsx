@@ -10,7 +10,7 @@ import { StatusBadge, GradeBadge, GRADE_VALUES } from '@/components/severity-bad
 import { useAuth } from '@/lib/auth-context';
 import {
   Plus, Search, FileText, ExternalLink, ChevronLeft, ChevronRight,
-  Star, TrendingUp, Users, X, MapPin, Loader2, Check,
+  Star, TrendingUp, Users, X, MapPin, Loader2, Check, Download,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -334,17 +334,46 @@ export default function RelayModelsPage() {
 
   const isFiltered = search || manufacturer !== 'All' || status !== 'All' || qualityFilter !== 'All' || popularityFilter !== 'All' || countFilter !== 'All';
 
+  const exportCSV = () => {
+    const escape = (v: string) => {
+      const s = String(v ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = 'Model Name,Manufacturer,Cloud Min RTMS,Status';
+    const rows = filtered.map(m =>
+      [m.model_name, m.manufacturer, m.template_version, m.status].map(escape).join(',')
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relay-models${isFiltered ? '-filtered' : ''}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <TopNav
         title="Relay Models"
         description={`${filtered.length} models${isFiltered ? ' (filtered)' : ''}`}
         actions={
-          profile?.role === 'admin' && (
-            <Link href="/relay-models/new" className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
-              <Plus className="w-3.5 h-3.5" /> Add Model
-            </Link>
-          )
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportCSV}
+              disabled={filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title={`Export ${filtered.length} model${filtered.length !== 1 ? 's' : ''} to CSV`}
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+            {profile?.role === 'admin' && (
+              <Link href="/relay-models/new" className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+                <Plus className="w-3.5 h-3.5" /> Add Model
+              </Link>
+            )}
+          </div>
         }
       />
 
