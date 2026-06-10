@@ -9,10 +9,11 @@ import { StatusBadge, GradeBadge, GRADE_VALUES } from '@/components/severity-bad
 import { toast } from 'sonner';
 import {
   Settings, Cpu, Trash2, Edit2, Plus, Loader2, Star, TrendingUp,
-  Users, Flag, ShieldCheck, ChevronDown, ChevronUp, Search,
+  Users, Flag, ShieldCheck, ChevronDown, ChevronUp, Search, FileInput, ExternalLink,
 } from 'lucide-react';
 import type { RelayModel } from '@/lib/database.types';
-import { computeCommunityGrade } from '@/lib/database.types';
+import { computeCommunityGrade, TR_STATUSES, TR_STATUS_COLORS, TR_PRIORITY_COLORS } from '@/lib/database.types';
+import type { TRStatus, TRPriority, TemplateRequest } from '@/lib/database.types';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -42,7 +43,7 @@ interface ModelWithRatings {
   rater_count: number;
 }
 
-type Tab = 'models' | 'ratings';
+type Tab = 'models' | 'ratings' | 'template-requests';
 
 export default function AdminPage() {
   const { profile, user } = useAuth();
@@ -73,10 +74,44 @@ export default function AdminPage() {
   const [savingGradeFor, setSavingGradeFor] = useState<string | null>(null);
   const [officialEdits, setOfficialEdits] = useState<Record<string, { quality: string; popularity: string }>>({});
 
+  // Template requests state
+  interface TRAdminRow extends TemplateRequest { submitter_name: string; vote_count: number; }
+  const [templateRequests, setTemplateRequests] = useState<TRAdminRow[]>([]);
+  const [trLoading, setTrLoading] = useState(false);
+  const [trSearch, setTrSearch] = useState('');
+  const [updatingTRId, setUpdatingTRId] = useState<string | null>(null);
+
   useEffect(() => {
     if (profile && profile.role !== 'admin') router.replace('/dashboard');
-    else { loadModels(); loadRatingsData(); }
+    else { loadModels(); loadRatingsData(); loadTemplateRequests(); }
   }, [profile]);
+
+  const loadTemplateRequests = async () => {
+    setTrLoading(true);
+    const [reqRes, votesRes, profilesRes] = await Promise.all([
+      supabase.from('template_requests').select('*').order('created_at', { ascending: false }),
+      supabase.from('template_request_votes').select('request_id'),
+      supabase.from('profiles').select('id, full_name, email'),
+    ]);
+    const pm = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
+    const vm = new Map<string, number>();
+    (votesRes.data || []).forEach((v: any) => vm.set(v.request_id, (vm.get(v.request_id) || 0) + 1));
+    setTemplateRequests(((reqRes.data || []) as TemplateRequest[]).map(r => { const p: any = pm.get(r.submitted_by); return { ...r, submitter_name: p?.full_name || p?.email || 'Unknown', vote_count: vm.get(r.id) || 0 }; }));
+    setTrLoading(false);
+  };
+
+  const handleTRStatus = async (id: string, status: string) => {
+    setUpdatingTRId(id);
+    const { error } = await supabase.from('template_requests').update({ status }).eq('id', id);
+    if (error) toast.error('Failed to update status');
+    else { toast.success('Status updated'); loadTemplateRequests(); }
+    setUpdatingTRId(null);
+  };
+
+  const handleTRDelete = async (id: string) => {
+    const { error } = await supabase.from('template_requests').delete().eq('id', id);
+    if (error) toast.error('Cannot delete'); else { toast.success('Deleted'); loadTemplateRequests(); }
+  };
 
   const loadModels = async () => {
     setLoading(true);
@@ -303,7 +338,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex items-center gap-1 border-b border-border">
-          {(['models', 'ratings'] as Tab[]).map(t => (
+          {(['models', 'ratings', 'template-requests'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -311,14 +346,22 @@ export default function AdminPage() {
                 tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t === 'models' ? 'Model Management' : (
-                <span className="flex items-center gap-1.5">
-                  Rating Reviews
-                  {needsApproval > 0 && (
-                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white text-xs font-bold">{needsApproval}</span>
-                  )}
-                </span>
-              )}
+              {t === 'models' ? 'Model Management'
+                : t === 'template-requests' ? (
+                  <span className="flex items-center gap-1.5">
+                    <FileInput className="w-3.5 h-3.5" /> Template Requests
+                    {templateRequests.filter(r => r.status === 'New').length > 0 && (
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-500 text-white text-xs font-bold">{templateRequests.filter(r => r.status === 'New').length}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    Rating Reviews
+                    {needsApproval > 0 && (
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white text-xs font-bold">{needsApproval}</span>
+                    )}
+                  </span>
+                )}
             </button>
           ))}
         </div>
@@ -554,6 +597,69 @@ export default function AdminPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Template Requests Tab */}
+        {tab === 'template-requests' && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input type="text" placeholder="Search requests…" value={trSearch} onChange={e => setTrSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <p className="text-sm text-muted-foreground ml-auto">{templateRequests.length} total</p>
+            </div>
+            {trLoading ? (
+              <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-14 bg-muted rounded-xl animate-pulse" />)}</div>
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="overflow-x-auto max-h-[65vh]">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur border-b border-border">
+                      <tr>
+                        {['ID', 'Title', 'Manufacturer', 'Relay Model', 'Type', 'Priority', 'Status', 'Votes', 'Submitted By', 'Actions'].map(h => (
+                          <th key={h} className="text-left px-4 py-3 text-xs font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {templateRequests
+                        .filter(r => !trSearch || r.title.toLowerCase().includes(trSearch.toLowerCase()) || r.relay_model.toLowerCase().includes(trSearch.toLowerCase()) || r.manufacturer.toLowerCase().includes(trSearch.toLowerCase()))
+                        .map(req => (
+                          <tr key={req.id} className="border-b border-border/50 hover:bg-muted/20 group">
+                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono whitespace-nowrap">#{req.request_number}</td>
+                            <td className="px-4 py-3 max-w-xs">
+                              <Link href={`/template-requests/${req.id}`} className="font-medium text-foreground hover:text-primary transition-colors line-clamp-2 flex items-center gap-1">
+                                {req.title}<ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 flex-shrink-0" />
+                              </Link>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{req.manufacturer}</td>
+                            <td className="px-4 py-3 text-xs text-foreground whitespace-nowrap">{req.relay_model}</td>
+                            <td className="px-4 py-3"><span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded whitespace-nowrap">{req.request_type}</span></td>
+                            <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${TR_PRIORITY_COLORS[req.priority as TRPriority] || ''}`}>{req.priority}</span></td>
+                            <td className="px-4 py-3">
+                              <select value={req.status} onChange={e => handleTRStatus(req.id, e.target.value)} disabled={updatingTRId === req.id}
+                                className={`text-xs font-medium px-2 py-1 rounded-lg border-0 outline-none cursor-pointer ${TR_STATUS_COLORS[req.status as TRStatus] || 'bg-muted text-muted-foreground'}`}>
+                                {TR_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-center font-semibold text-foreground">{req.vote_count}</td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{req.submitter_name}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Link href={`/template-requests/${req.id}`} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="View"><ExternalLink className="w-3.5 h-3.5" /></Link>
+                                <button onClick={() => handleTRDelete(req.id)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-destructive transition-colors" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import {
   Cpu, MessageSquare, AlertTriangle, CheckCircle2, Clock, TrendingUp,
-  Star, Users, ShieldCheck, AlertCircle, BarChart3, MapPin,
+  Star, Users, ShieldCheck, AlertCircle, BarChart3, MapPin, FileInput,
 } from 'lucide-react';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import Link from 'next/link';
@@ -26,6 +26,10 @@ interface Stats {
   criticalIssues: number;
   totalRatings: number;
   modelsNeedingApproval: number;
+  trTotal: number;
+  trUnderReview: number;
+  trApproved: number;
+  trReleased: number;
 }
 
 interface MonthlyTrend { month: string; open: number; resolved: number; }
@@ -44,7 +48,7 @@ export default function DashboardPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
 
-  const [stats, setStats] = useState<Stats>({ totalModels: 0, totalFeedback: 0, openIssues: 0, closedIssues: 0, avgFixHours: 0, criticalIssues: 0, totalRatings: 0, modelsNeedingApproval: 0 });
+  const [stats, setStats] = useState<Stats>({ totalModels: 0, totalFeedback: 0, openIssues: 0, closedIssues: 0, avgFixHours: 0, criticalIssues: 0, totalRatings: 0, modelsNeedingApproval: 0, trTotal: 0, trUnderReview: 0, trApproved: 0, trReleased: 0 });
   const [severityDist, setSeverityDist] = useState<Array<{ name: string; value: number; color: string }>>([]);
   const [monthlyTrend, setMonthlyTrend] = useState<MonthlyTrend[]>([]);
   const [topModels, setTopModels] = useState<TopModel[]>([]);
@@ -64,12 +68,13 @@ export default function DashboardPage() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [modelsRes, feedbackRes, profilesRes, ratingsRes, usagesRes] = await Promise.all([
+      const [modelsRes, feedbackRes, profilesRes, ratingsRes, usagesRes, trRes] = await Promise.all([
         supabase.from('relay_models').select('id, model_name, manufacturer, official_quality_grade, official_popularity_grade', { count: 'exact' }),
         supabase.from('feedback_entries').select('*'),
         supabase.from('profiles').select('id, full_name, email'),
         supabase.from('relay_model_ratings').select('relay_model_id, user_id, quality_grade, popularity_grade, is_flagged, created_at').eq('is_flagged', false),
         supabase.from('template_usages').select('relay_model_id, user_id, count'),
+        supabase.from('template_requests').select('status'),
       ]);
 
       const models: Array<{ id: string; model_name: string; manufacturer: string; official_quality_grade: string; official_popularity_grade: string }> = modelsRes.data || [];
@@ -98,7 +103,12 @@ export default function DashboardPage() {
         return mr.length > 0 && (m.official_quality_grade === 'N/A' || m.official_popularity_grade === 'N/A');
       }).length;
 
-      setStats({ totalModels: modelsRes.count || 0, totalFeedback: feedback.length, openIssues, closedIssues, avgFixHours: Math.round(avgFixHours * 10) / 10, criticalIssues, totalRatings: ratings.length, modelsNeedingApproval });
+      setStats({ totalModels: modelsRes.count || 0, totalFeedback: feedback.length, openIssues, closedIssues, avgFixHours: Math.round(avgFixHours * 10) / 10, criticalIssues, totalRatings: ratings.length, modelsNeedingApproval,
+        trTotal: (trRes.data || []).length,
+        trUnderReview: (trRes.data || []).filter((r: any) => r.status === 'Under Review').length,
+        trApproved: (trRes.data || []).filter((r: any) => r.status === 'Approved').length,
+        trReleased: (trRes.data || []).filter((r: any) => r.status === 'Released').length,
+      });
 
       // Severity distribution
       const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -262,6 +272,33 @@ export default function DashboardPage() {
           {isAdmin && (
             <StatCard title="Generate Reports" value="12 templates" icon={BarChart3} color="" subtitle="Export analytics & reports" href="/admin/reports" dark />
           )}
+        </div>
+
+        {/* Template Requests card */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-foreground text-sm flex items-center gap-2"><FileInput className="w-4 h-4 text-blue-500" /> Template Requests</h3>
+              <p className="text-xs text-muted-foreground">New RTMS template development requests</p>
+            </div>
+            <Link href="/template-requests" className="text-xs text-muted-foreground hover:text-primary transition-colors">View all</Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Total Requests', value: stats.trTotal, color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' },
+              { label: 'Under Review', value: stats.trUnderReview, color: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' },
+              { label: 'Approved', value: stats.trApproved, color: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' },
+              { label: 'Released', value: stats.trReleased, color: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' },
+            ].map(s => (
+              <Link key={s.label} href="/template-requests" className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary/40 hover:bg-muted/30 transition-all">
+                <div className={`p-2 rounded-lg flex-shrink-0 ${s.color}`}><FileInput className="w-3.5 h-3.5" /></div>
+                <div>
+                  <p className="text-xl font-bold text-foreground">{loading ? '—' : s.value}</p>
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
 
         {/* Charts row */}

@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import {
   BarChart3, FileText, Users, Cpu, MessageSquare, Star,
   Download, Loader2, CheckCircle2, Clock, AlertTriangle,
-  ChevronRight, Calendar, RefreshCw, Sparkles,
+  ChevronRight, Calendar, RefreshCw, Sparkles, FileInput,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -20,7 +20,7 @@ interface ReportTemplate {
   description: string;
   icon: React.ElementType;
   iconColor: string;
-  category: 'feedback' | 'models' | 'ratings' | 'users';
+  category: 'feedback' | 'models' | 'ratings' | 'users' | 'template-requests';
   columns: string[];
   fetchData: () => Promise<Record<string, unknown>[]>;
 }
@@ -302,6 +302,133 @@ export default function ReportsPage() {
         }));
       },
     },
+    // ── Template Request Reports ───────────────────────────────────
+    {
+      id: 'tr-open',
+      title: 'Open Template Requests',
+      description: 'All template requests not yet released, rejected, or deferred — sorted by priority.',
+      icon: FileInput,
+      iconColor: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+      category: 'template-requests' as const,
+      columns: ['request_number', 'title', 'manufacturer', 'relay_model', 'request_type', 'priority', 'status', 'votes', 'submitted_by', 'region', 'created_at'],
+      fetchData: async () => {
+        const [reqRes, votesRes, profilesRes] = await Promise.all([
+          supabase.from('template_requests').select('*').not('status', 'in', '("Released","Rejected","Deferred")').order('created_at', { ascending: false }),
+          supabase.from('template_request_votes').select('request_id'),
+          supabase.from('profiles').select('id, full_name, email'),
+        ]);
+        const pm = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
+        const vm = new Map<string, number>();
+        (votesRes.data || []).forEach((v: any) => vm.set(v.request_id, (vm.get(v.request_id) || 0) + 1));
+        return (reqRes.data || []).map((r: any) => { const p: any = pm.get(r.submitted_by); return { request_number: `TR-${r.request_number}`, title: r.title, manufacturer: r.manufacturer, relay_model: r.relay_model, request_type: r.request_type, priority: r.priority, status: r.status, votes: vm.get(r.id) || 0, submitted_by: p?.full_name || p?.email || '', region: r.region, created_at: format(new Date(r.created_at), 'yyyy-MM-dd') }; });
+      },
+    },
+    {
+      id: 'tr-by-manufacturer',
+      title: 'Requests by Manufacturer',
+      description: 'Template request counts grouped by manufacturer with status breakdown.',
+      icon: FileInput,
+      iconColor: 'bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400',
+      category: 'template-requests' as const,
+      columns: ['manufacturer', 'total', 'new', 'approved', 'released', 'rejected'],
+      fetchData: async () => {
+        const { data } = await supabase.from('template_requests').select('manufacturer, status');
+        const map = new Map<string, Record<string, number>>();
+        (data || []).forEach((r: any) => { const e = map.get(r.manufacturer) || { total: 0, new: 0, approved: 0, released: 0, rejected: 0 }; e.total++; const k = r.status.toLowerCase().replace(/ /g, '_'); if (k in e) e[k]++; map.set(r.manufacturer, e); });
+        return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total).map(([manufacturer, c]) => ({ manufacturer, ...c }));
+      },
+    },
+    {
+      id: 'tr-by-region',
+      title: 'Requests by Region',
+      description: 'Template request counts grouped by region with priority breakdown.',
+      icon: FileInput,
+      iconColor: 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400',
+      category: 'template-requests' as const,
+      columns: ['region', 'total', 'critical', 'high', 'medium', 'low'],
+      fetchData: async () => {
+        const { data } = await supabase.from('template_requests').select('region, priority');
+        const map = new Map<string, Record<string, number>>();
+        (data || []).forEach((r: any) => { const region = r.region || 'Unspecified'; const e = map.get(region) || { total: 0, critical: 0, high: 0, medium: 0, low: 0 }; e.total++; const k = r.priority.toLowerCase(); if (k in e) e[k]++; map.set(region, e); });
+        return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total).map(([region, c]) => ({ region, ...c }));
+      },
+    },
+    {
+      id: 'tr-top-models',
+      title: 'Top Requested Relay Models',
+      description: 'Most frequently requested relay models across all template requests.',
+      icon: FileInput,
+      iconColor: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
+      category: 'template-requests' as const,
+      columns: ['relay_model', 'manufacturer', 'total_requests', 'total_votes'],
+      fetchData: async () => {
+        const [allReqs, votesRes] = await Promise.all([
+          supabase.from('template_requests').select('id, relay_model, manufacturer'),
+          supabase.from('template_request_votes').select('request_id'),
+        ]);
+        const vm = new Map<string, number>();
+        (votesRes.data || []).forEach((v: any) => vm.set(v.request_id, (vm.get(v.request_id) || 0) + 1));
+        const map = new Map<string, { manufacturer: string; total: number; votes: number }>();
+        (allReqs.data || []).forEach((r: any) => { const e = map.get(r.relay_model) || { manufacturer: r.manufacturer, total: 0, votes: 0 }; e.total++; e.votes += vm.get(r.id) || 0; map.set(r.relay_model, e); });
+        return Array.from(map.entries()).sort((a, b) => b[1].total - a[1].total).slice(0, 50).map(([relay_model, c]) => ({ relay_model, manufacturer: c.manufacturer, total_requests: c.total, total_votes: c.votes }));
+      },
+    },
+    {
+      id: 'tr-status-summary',
+      title: 'Status Summary',
+      description: 'Count and percentage of template requests per workflow status.',
+      icon: FileInput,
+      iconColor: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+      category: 'template-requests' as const,
+      columns: ['status', 'count', 'percentage'],
+      fetchData: async () => {
+        const { data } = await supabase.from('template_requests').select('status');
+        const map = new Map<string, number>();
+        (data || []).forEach((r: any) => map.set(r.status, (map.get(r.status) || 0) + 1));
+        const total = (data || []).length;
+        return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).map(([status, count]) => ({ status, count, percentage: total ? `${((count / total) * 100).toFixed(1)}%` : '0%' }));
+      },
+    },
+    {
+      id: 'tr-approved',
+      title: 'Approved Requests',
+      description: 'All template requests with Approved or Planned status.',
+      icon: FileInput,
+      iconColor: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400',
+      category: 'template-requests' as const,
+      columns: ['request_number', 'title', 'manufacturer', 'relay_model', 'priority', 'votes', 'submitted_by', 'created_at'],
+      fetchData: async () => {
+        const [reqRes, votesRes, profilesRes] = await Promise.all([
+          supabase.from('template_requests').select('*').in('status', ['Approved', 'Planned']).order('created_at', { ascending: false }),
+          supabase.from('template_request_votes').select('request_id'),
+          supabase.from('profiles').select('id, full_name, email'),
+        ]);
+        const pm = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
+        const vm = new Map<string, number>();
+        (votesRes.data || []).forEach((v: any) => vm.set(v.request_id, (vm.get(v.request_id) || 0) + 1));
+        return (reqRes.data || []).map((r: any) => { const p: any = pm.get(r.submitted_by); return { request_number: `TR-${r.request_number}`, title: r.title, manufacturer: r.manufacturer, relay_model: r.relay_model, priority: r.priority, votes: vm.get(r.id) || 0, submitted_by: p?.full_name || p?.email || '', created_at: format(new Date(r.created_at), 'yyyy-MM-dd') }; });
+      },
+    },
+    {
+      id: 'tr-released',
+      title: 'Released Templates',
+      description: 'All template requests that have been completed and released.',
+      icon: FileInput,
+      iconColor: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
+      category: 'template-requests' as const,
+      columns: ['request_number', 'title', 'manufacturer', 'relay_model', 'priority', 'votes', 'submitted_by', 'created_at', 'updated_at'],
+      fetchData: async () => {
+        const [reqRes, votesRes, profilesRes] = await Promise.all([
+          supabase.from('template_requests').select('*').eq('status', 'Released').order('updated_at', { ascending: false }),
+          supabase.from('template_request_votes').select('request_id'),
+          supabase.from('profiles').select('id, full_name, email'),
+        ]);
+        const pm = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
+        const vm = new Map<string, number>();
+        (votesRes.data || []).forEach((v: any) => vm.set(v.request_id, (vm.get(v.request_id) || 0) + 1));
+        return (reqRes.data || []).map((r: any) => { const p: any = pm.get(r.submitted_by); return { request_number: `TR-${r.request_number}`, title: r.title, manufacturer: r.manufacturer, relay_model: r.relay_model, priority: r.priority, votes: vm.get(r.id) || 0, submitted_by: p?.full_name || p?.email || '', created_at: format(new Date(r.created_at), 'yyyy-MM-dd'), updated_at: format(new Date(r.updated_at), 'yyyy-MM-dd') }; });
+      },
+    },
   ];
 
   const CATEGORIES = [
@@ -309,6 +436,7 @@ export default function ReportsPage() {
     { id: 'models', label: 'Relay Models', icon: Cpu },
     { id: 'ratings', label: 'Ratings', icon: Star },
     { id: 'users', label: 'Users', icon: Users },
+    { id: 'template-requests', label: 'Template Requests', icon: FileInput },
   ];
 
   const handleGenerate = async (report: ReportTemplate) => {
