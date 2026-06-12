@@ -12,7 +12,7 @@ import {
   Users, Flag, ShieldCheck, ChevronDown, ChevronUp, Search, FileInput, ExternalLink,
 } from 'lucide-react';
 import type { RelayModel } from '@/lib/database.types';
-import { computeCommunityGrade, TR_STATUSES, TR_STATUS_COLORS, TR_PRIORITY_COLORS } from '@/lib/database.types';
+import { computeCommunityGrade, TR_STATUSES, TR_STATUS_COLORS, TR_PRIORITY_COLORS, TR_ASSIGNEES } from '@/lib/database.types';
 import type { TRStatus, TRPriority, TemplateRequest } from '@/lib/database.types';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
@@ -105,6 +105,14 @@ export default function AdminPage() {
     const { error } = await supabase.from('template_requests').update({ status }).eq('id', id);
     if (error) toast.error('Failed to update status');
     else { toast.success('Status updated'); loadTemplateRequests(); }
+    setUpdatingTRId(null);
+  };
+
+  const handleTRAssign = async (id: string, assigned_to_name: string | null) => {
+    setUpdatingTRId(id);
+    const { error } = await supabase.from('template_requests').update({ assigned_to_name }).eq('id', id);
+    if (error) toast.error('Failed to update assignee');
+    else setTemplateRequests(prev => prev.map(r => r.id === id ? { ...r, assigned_to_name } : r));
     setUpdatingTRId(null);
   };
 
@@ -621,7 +629,7 @@ export default function AdminPage() {
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur border-b border-border">
                       <tr>
-                        {['ID', 'Title', 'Manufacturer', 'Relay Model', 'Type', 'Priority', 'Status', 'Votes', 'Submitted By', 'Actions'].map(h => (
+                        {['ID', 'Title', 'Manufacturer', 'Relay Model', 'Type', 'Priority', 'Status', 'Assigned To', 'Votes', 'Submitted By', 'Actions'].map(h => (
                           <th key={h} className="text-left px-4 py-3 text-xs font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -645,6 +653,13 @@ export default function AdminPage() {
                               <select value={req.status} onChange={e => handleTRStatus(req.id, e.target.value)} disabled={updatingTRId === req.id}
                                 className={`text-xs font-medium px-2 py-1 rounded-lg border-0 outline-none cursor-pointer ${TR_STATUS_COLORS[req.status as TRStatus] || 'bg-muted text-muted-foreground'}`}>
                                 {TR_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <select value={req.assigned_to_name || ''} onChange={e => handleTRAssign(req.id, e.target.value || null)} disabled={updatingTRId === req.id}
+                                className="text-xs px-2 py-1 rounded-lg border border-border bg-background outline-none cursor-pointer focus:ring-1 focus:ring-ring text-foreground">
+                                <option value="">— Unassigned —</option>
+                                {TR_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
                               </select>
                             </td>
                             <td className="px-4 py-3 text-xs text-center font-semibold text-foreground">{req.vote_count}</td>

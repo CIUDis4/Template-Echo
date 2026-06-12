@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import {
-  TR_STATUSES, TR_PRIORITIES, TR_MANUFACTURERS,
+  TR_STATUSES, TR_PRIORITIES, TR_MANUFACTURERS, TR_ASSIGNEES,
   TR_STATUS_COLORS, TR_PRIORITY_COLORS,
 } from '@/lib/database.types';
 import type { TemplateRequest, TRStatus, TRPriority } from '@/lib/database.types';
@@ -33,6 +33,7 @@ export default function TemplateRequestsPage() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [priorityFilter, setPriorityFilter] = useState('All');
   const [mfrFilter, setMfrFilter] = useState('All');
+  const [assigneeFilter, setAssigneeFilter] = useState('All');
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<SortCol>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -77,16 +78,17 @@ export default function TemplateRequestsPage() {
     if (statusFilter !== 'All') r = r.filter(x => x.status === statusFilter);
     if (priorityFilter !== 'All') r = r.filter(x => x.priority === priorityFilter);
     if (mfrFilter !== 'All') r = r.filter(x => x.manufacturer === mfrFilter);
+    if (assigneeFilter !== 'All') r = r.filter(x => x.assigned_to_name === assigneeFilter);
     return [...r].sort((a, b) => {
       const va = a[sortBy] as string | number, vb = b[sortBy] as string | number;
       const cmp = va < vb ? -1 : va > vb ? 1 : 0;
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [rows, search, statusFilter, priorityFilter, mfrFilter, sortBy, sortDir]);
+  }, [rows, search, statusFilter, priorityFilter, mfrFilter, assigneeFilter, sortBy, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const isFiltered = search || statusFilter !== 'All' || priorityFilter !== 'All' || mfrFilter !== 'All';
+  const isFiltered = search || statusFilter !== 'All' || priorityFilter !== 'All' || mfrFilter !== 'All' || assigneeFilter !== 'All';
 
   const sort = (col: SortCol) => { if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy(col); setSortDir('desc'); } setPage(1); };
   const SortIcon = ({ col }: { col: SortCol }) => <ArrowUpDown className={`inline w-3 h-3 ml-1 ${sortBy === col ? 'text-primary' : 'text-muted-foreground/40'}`} />;
@@ -133,6 +135,7 @@ export default function TemplateRequestsPage() {
               [statusFilter, setStatusFilter, ['All', ...TR_STATUSES], 'Status'],
               [priorityFilter, setPriorityFilter, ['All', ...TR_PRIORITIES], 'Priority'],
               [mfrFilter, setMfrFilter, ['All', ...TR_MANUFACTURERS], 'Manufacturer'],
+              [assigneeFilter, setAssigneeFilter, ['All', ...TR_ASSIGNEES], 'Assignee'],
             ] as [string, (v: string) => void, string[], string][]).map(([val, setter, opts, label]) => (
               <select key={label} value={val} onChange={e => { setter(e.target.value); setPage(1); }}
                 className="px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring">
@@ -155,6 +158,7 @@ export default function TemplateRequestsPage() {
                     ['Type', null, ''],
                     ['Priority', 'priority', ''],
                     ['Status', 'status', ''],
+                    ['Assigned To', null, 'whitespace-nowrap'],
                     ['Support', 'vote_count', ''],
                     ['Submitted By', null, 'whitespace-nowrap'],
                     ['Created', 'created_at', 'whitespace-nowrap'],
@@ -170,11 +174,11 @@ export default function TemplateRequestsPage() {
                 {loading ? (
                   [...Array(6)].map((_, i) => (
                     <tr key={i} className="border-b border-border/50">
-                      {[...Array(11)].map((_, j) => <td key={j} className="px-4 py-3"><div className="h-4 bg-muted rounded animate-pulse" /></td>)}
+                      {[...Array(12)].map((_, j) => <td key={j} className="px-4 py-3"><div className="h-4 bg-muted rounded animate-pulse" /></td>)}
                     </tr>
                   ))
                 ) : paginated.length === 0 ? (
-                  <tr><td colSpan={11} className="px-4 py-14 text-center text-muted-foreground text-sm">
+                  <tr><td colSpan={12} className="px-4 py-14 text-center text-muted-foreground text-sm">
                     {isFiltered ? 'No requests match your filters.' : 'No template requests yet. Be the first to submit one!'}
                   </td></tr>
                 ) : paginated.map(req => (
@@ -189,6 +193,11 @@ export default function TemplateRequestsPage() {
                     <td className="px-4 py-3"><span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full whitespace-nowrap">{req.request_type}</span></td>
                     <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${TR_PRIORITY_COLORS[req.priority as TRPriority] || ''}`}>{req.priority}</span></td>
                     <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${TR_STATUS_COLORS[req.status as TRStatus] || ''}`}>{req.status}</span></td>
+                    <td className="px-4 py-3 text-xs whitespace-nowrap">
+                      {req.assigned_to_name
+                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full font-medium">{req.assigned_to_name}</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </td>
                     <td className="px-4 py-3">
                       <button onClick={e => handleVote(e, req)}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${req.my_vote ? 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600' : 'bg-background text-muted-foreground border-border hover:text-blue-600 hover:border-blue-400'}`}

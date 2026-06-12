@@ -1,0 +1,1 @@
+ALTER TABLE template_requests ADD COLUMN IF NOT EXISTS assigned_to_name text DEFAULT NULL;

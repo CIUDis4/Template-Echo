@@ -22,7 +22,7 @@ export function FeedbackForm({ relayModelId, onSuccess, onCancel, editEntry }: F
   const [title, setTitle] = useState(editEntry?.title || '');
   const [description, setDescription] = useState(editEntry?.description || '');
   const [severity, setSeverity] = useState<'low' | 'medium' | 'high' | 'critical'>(editEntry?.severity || 'medium');
-  const [estimatedHours, setEstimatedHours] = useState(editEntry?.estimated_fix_hours?.toString() || '0');
+  const [estimatedHours, setEstimatedHours] = useState(editEntry?.estimated_fix_hours?.toString() || '1');
   const [status, setStatus] = useState(editEntry?.status || 'open');
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -57,7 +57,7 @@ export function FeedbackForm({ relayModelId, onSuccess, onCancel, editEntry }: F
       if (editEntry) {
         const { error } = await supabase
           .from('feedback_entries')
-          .update({ title, description, severity, estimated_fix_hours: parseFloat(estimatedHours) || 0, status })
+          .update({ title, description, severity, estimated_fix_hours: parseFloat(estimatedHours) || 1, status })
           .eq('id', editEntry.id);
         if (error) throw error;
       } else {
@@ -69,7 +69,7 @@ export function FeedbackForm({ relayModelId, onSuccess, onCancel, editEntry }: F
             title,
             description,
             severity,
-            estimated_fix_hours: parseFloat(estimatedHours) || 0,
+            estimated_fix_hours: parseFloat(estimatedHours) || 1,
             status: 'open',
           })
           .select()

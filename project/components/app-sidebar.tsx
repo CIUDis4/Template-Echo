@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
   LayoutDashboard, Cpu, MessageSquare, Upload, Settings,
-  Users, Search, Activity, Zap, ChevronRight, LogOut, Moon, Sun, BarChart3, Bug, FileInput,
+  Users, Search, Activity, Zap, ChevronRight, LogOut, Moon, Sun, BarChart3, Bug, FileInput, Bell,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -20,6 +20,7 @@ const navItems = [
   { href: '/template-requests', label: 'Template Requests', icon: FileInput },
   { href: '/search', label: 'Search', icon: Search },
   { href: '/activity', label: 'Activity Log', icon: Activity },
+  { href: '/notifications/preferences', label: 'My Notifications', icon: Bell },
 ];
 
 const adminItems = [
@@ -27,6 +28,7 @@ const adminItems = [
   { href: '/admin', label: 'Admin Panel', icon: Settings },
   { href: '/admin/users', label: 'User Management', icon: Users },
   { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/admin/notifications', label: 'Notifications', icon: Bell },
 ];
 
 export function AppSidebar() {

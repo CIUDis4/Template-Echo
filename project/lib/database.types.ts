@@ -393,6 +393,7 @@ export interface TemplateRequest {
   priority: TRPriority;
   status: TRStatus;
   assigned_to: string | null;
+  assigned_to_name: string | null;
   internal_notes: string;
   submitted_by: string;
   created_at: string;
@@ -441,6 +442,10 @@ export const TR_MANUFACTURERS = [
 export const TR_REGIONS = [
   'North America', 'South America', 'Europe',
   'Middle East', 'Asia Pacific', 'Africa',
+];
+
+export const TR_ASSIGNEES = [
+  'Dhanabal', 'Mauro', 'Sukumar', 'Christopher', 'Abel',
 ];
 
 export const TR_STATUS_COLORS: Record<TRStatus, string> = {

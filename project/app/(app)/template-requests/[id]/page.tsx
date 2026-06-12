@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
-  TR_STATUSES, TR_PRIORITIES, TR_TYPES, TR_MANUFACTURERS, TR_REGIONS,
+  TR_STATUSES, TR_PRIORITIES, TR_TYPES, TR_MANUFACTURERS, TR_REGIONS, TR_ASSIGNEES,
   TR_STATUS_COLORS, TR_PRIORITY_COLORS,
 } from '@/lib/database.types';
 import type { TemplateRequest, TemplateRequestComment, TemplateRequestAttachment, TRStatus, TRPriority } from '@/lib/database.types';
@@ -39,11 +39,10 @@ export default function TemplateRequestDetailPage() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<TemplateRequest>>({});
   const [saving, setSaving] = useState(false);
+  const [assigningSaving, setAssigningSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { load(); }, [id]);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const [reqRes, votesRes, commentsRes, attachRes, profilesRes] = await Promise.all([
       supabase.from('template_requests').select('*').eq('id', id).single(),
@@ -62,7 +61,9 @@ export default function TemplateRequestDetailPage() {
       .map(c => { const p: any = pm.get(c.user_id); return { ...c, author_name: p?.full_name || p?.email || 'Unknown', author_initial: (p?.full_name || p?.email || 'U').charAt(0).toUpperCase() }; });
     setReq({ ...data, submitter_name: sub?.full_name || sub?.email || 'Unknown', vote_count: voters.length, my_vote: !!user && voters.includes(user.id), comments, attachments: (attachRes.data || []) as TemplateRequestAttachment[] });
     setLoading(false);
-  };
+  }, [id, user, isAdmin]);
+
+  useEffect(() => { load(); }, [load]);
 
   const handleVote = async () => {
     if (!user || !req) return;
@@ -99,12 +100,21 @@ export default function TemplateRequestDetailPage() {
 
   const startEdit = () => {
     if (!req) return;
-    setEditForm({ title: req.title, manufacturer: req.manufacturer, relay_model: req.relay_model, firmware_version: req.firmware_version, request_type: req.request_type, justification: req.justification, customer_utility: req.customer_utility, region: req.region, priority: req.priority, status: req.status, internal_notes: req.internal_notes });
+    setEditForm({ title: req.title, manufacturer: req.manufacturer, relay_model: req.relay_model, firmware_version: req.firmware_version, request_type: req.request_type, justification: req.justification, customer_utility: req.customer_utility, region: req.region, priority: req.priority, status: req.status, assigned_to_name: req.assigned_to_name, internal_notes: req.internal_notes });
     setEditing(true);
   };
 
-  const saveEdit = async () => {
-    setSaving(true);
+  const handleAssigneeChange = async (val: string) => {
+    if (assigningSaving) return;
+    const assignee = val || null;
+    setAssigningSaving(true);
+    setReq(r => r ? { ...r, assigned_to_name: assignee } : r);
+    const { error } = await supabase.from('template_requests').update({ assigned_to_name: assignee }).eq('id', id);
+    if (error) { toast.error('Failed to update assignee'); load(); }
+    setAssigningSaving(false);
+  };
+
+  const saveEdit = async () => {    setSaving(true);
     const { error } = await supabase.from('template_requests').update(editForm).eq('id', id);
     if (error) { toast.error('Save failed'); setSaving(false); return; }
     toast.success('Updated'); setEditing(false); setSaving(false); load();
@@ -179,6 +189,11 @@ export default function TemplateRequestDetailPage() {
                     <option value="">—</option>{TR_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
+                <div><label className="block text-xs font-medium text-muted-foreground mb-1">Assigned To</label>
+                  <select value={editForm.assigned_to_name || ''} onChange={e => setEditForm(p => ({ ...p, assigned_to_name: e.target.value || null }))} className={inputCls}>
+                    <option value="">— Unassigned —</option>{TR_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
                 <div className="sm:col-span-2"><label className="block text-xs font-medium text-muted-foreground mb-1">Business Justification</label><textarea value={editForm.justification || ''} onChange={e => setEditForm(p => ({ ...p, justification: e.target.value }))} rows={3} className={`${inputCls} resize-y`} /></div>
                 <div className="sm:col-span-2"><label className="block text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1"><Lock className="w-3 h-3" /> Internal Notes (admin only)</label><textarea value={editForm.internal_notes || ''} onChange={e => setEditForm(p => ({ ...p, internal_notes: e.target.value }))} rows={2} className={`${inputCls} resize-y`} /></div>
               </div>
@@ -207,7 +222,26 @@ export default function TemplateRequestDetailPage() {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3 pt-2 border-t border-border/50">
-                {[['Manufacturer', req.manufacturer], ['Relay Model', req.relay_model], ['Firmware Version', req.firmware_version || '—'], ['Request Type', req.request_type], ['Region', req.region || '—'], ['Customer / Utility', req.customer_utility || '—'], ['Submitted By', req.submitter_name], ['Created', format(new Date(req.created_at), 'dd MMM yyyy')], ['Updated', format(new Date(req.updated_at), 'dd MMM yyyy')]].map(([l, v]) => (
+                {[['Manufacturer', req.manufacturer], ['Relay Model', req.relay_model], ['Firmware Version', req.firmware_version || '—'], ['Request Type', req.request_type], ['Region', req.region || '—'], ['Customer / Utility', req.customer_utility || '—']].map(([l, v]) => (
+                  <div key={l}><p className="text-xs text-muted-foreground mb-0.5">{l}</p><p className="text-sm font-medium text-foreground">{v}</p></div>
+                ))}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Assigned To</p>
+                  {isAdmin ? (
+                    <select
+                      value={req.assigned_to_name || ''}
+                      onChange={e => handleAssigneeChange(e.target.value)}
+                      disabled={assigningSaving}
+                      className="text-sm font-medium border border-border rounded-lg px-2 py-1 bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer text-foreground w-full max-w-[180px] disabled:opacity-60"
+                    >
+                      <option value="">— Unassigned —</option>
+                      {TR_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-sm font-medium text-foreground">{req.assigned_to_name || '—'}</p>
+                  )}
+                </div>
+                {[['Submitted By', req.submitter_name], ['Created', format(new Date(req.created_at), 'dd MMM yyyy')], ['Updated', format(new Date(req.updated_at), 'dd MMM yyyy')]].map(([l, v]) => (
                   <div key={l}><p className="text-xs text-muted-foreground mb-0.5">{l}</p><p className="text-sm font-medium text-foreground">{v}</p></div>
                 ))}
               </div>
